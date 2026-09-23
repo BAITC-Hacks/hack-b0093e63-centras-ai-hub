@@ -95,15 +95,17 @@ Ecohome A60 3000K, арт. 080300163_, 800 ₸). Другие способы п�
 - [x] **Ежедневное обновление**: workflow GitHub Actions `refresh-data.yml` (03:15 по Алматы)
   с проверкой цен категории. Workflow написан, но секреты репозитория ещё не заданы (см.
   [ограничения](#10-ограничения)).
-- [x] **Встраиваемый виджет** (`web/`): один `<script>` без зависимостей, 38.5 KB, Shadow DOM,
+- [x] **Встраиваемый виджет** (`web/`): один `<script>` без зависимостей, 38.5 KB (14.5 KB
+  gzip, лимит сборки 40 KB), Shadow DOM,
   потоковые ответы, карточки товаров, оценки 👍/👎, клавиатура, мобильная вёрстка.
   Собран и проверен командой в headless Chrome. Запускается локально, на Vercel ещё не
   опубликован.
 - [x] **Воспроизводимость**: снимок данных в `seed/`, локальный стек одной командой
   `npm run setup:local` (Docker), дымовой тест `npm run smoke`, eval-набор `npm run eval`.
 - [x] **Тесты и CI**: `npm test` (vitest, 113 тестов: парсеры на HTML-фикстурах ekt.kz,
-  нарезка, сравнение цен, markdown и SSE виджета), `deno test` функции чата (34 теста),
-  GitHub Actions `ci.yml`.
+  нарезка, сравнение цен, markdown и SSE виджета), `deno test` функции чата (94 теста: HTTP,
+  OpenAI-клиент, промпт, SSE, инструменты, постпроверка `validate.ts`, вспомогательные
+  функции UI-действий виджета), GitHub Actions `ci.yml`.
 
 ## 4. Как работает решение
 
@@ -232,6 +234,16 @@ ekt.kz ──► scraper (Node/TS) ──► data/*.jsonl ──► ingest ─�
 чистого клона с данными из `seed/`. **Путь C** разворачивает решение в своём облачном
 проекте Supabase.
 
+> Во всех путях ниже используется `npm ci` (чистая установка строго по `package-lock.json`,
+> как в CI). На момент проверки README (см. [журнал верификации](docs/README-VERIFICATION.md))
+> `npm ci` на чистом клоне текущей ветки завершался ошибкой `npm error Missing: ... from lock
+> file` — `package-lock.json` временно разошёлся с `package.json` (в процессе добавления
+> Chrome-расширения). Если увидите эту ошибку, используйте `npm install` — он ставит те же
+> зависимости и все команды ниже (`npm test`, `npm run build:web` и т. д.) после него работают
+> штатно. `npm ci` — целевая команда для CI и для установки без сюрпризов, когда lock-файл
+> синхронизирован; лечится обычным `npm install` с последующим коммитом обновлённого
+> `package-lock.json`.
+
 ### Путь A: развёрнутая версия
 
 API уже работает. Ключ не нужен. Адреса перечислены в
@@ -353,6 +365,7 @@ npm run dev:web                     # http://localhost:5173/?api=http://localhos
 | `npm run build:web` / `dev:web` | собрать виджет / собирать с watch и раздавать `web/public` на :5173 |
 | `npm test` / `npm run typecheck` | vitest / `tsc --noEmit` |
 | `npm run smoke` | дымовой тест API (5 проверок) |
+| `npm run check:search` | recall гибридного поиска: 6 проверок RPC `ekt.search_products` напрямую через PostgREST (нужны `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` в `.env.local`/`.env`) |
 | `npm run eval` | прогон эталонных сценариев через живой API |
 
 ## 8. Как проверить решение
@@ -400,8 +413,9 @@ CHAT_URL=https://gqdwplbvxopanapxzlaw.supabase.co/functions/v1/chat npm run smok
 
 ```bash
 npm test                                         # vitest: 113 тестов (парсеры, нарезка, цены, виджет)
-npx -y deno@2 test supabase/functions/chat/      # функция чата: 34 теста (или `deno test ...`, если Deno установлен)
+npx -y deno@2 test supabase/functions/chat/      # функция чата: 94 теста (или `deno test ...`, если Deno установлен)
 npm run typecheck                                # tsc --noEmit
+npx tsc --noEmit -p .                            # то же самое явно с конфигом (эквивалентно npm run typecheck)
 ```
 
 ### 8.5. Eval: эталонные сценарии через живой API
@@ -528,7 +542,11 @@ API самого решения: `POST /functions/v1/chat` (SSE), `POST /chat/fe
 Миграции: [`20260923120000_init.sql`](supabase/migrations/20260923120000_init.sql) (схема,
 индексы, RLS, RPC), [`20260923140000_order_note.sql`](supabase/migrations/20260923140000_order_note.sql)
 (пометка «Под заказ»), [`20260923150000_price_history.sql`](supabase/migrations/20260923150000_price_history.sql)
-(история цен).
+(история цен), [`20260923160000_search_recall.sql`](supabase/migrations/20260923160000_search_recall.sql)
+(нормализация единиц измерения и цоколей в `p_attrs`/тексте запроса, OR-полнотекст вместо
+AND — иначе «10 Вт» не находило товар с атрибутом «10»), [`20260923170000_search_rank.sql`](supabase/migrations/20260923170000_search_rank.sql)
+(полнотекст участвует в RRF дважды — AND-вариант весом 2.0 поднимает точные совпадения по
+всем словам запроса наверх, OR-вариант весом 1.0 сохраняет recall из предыдущей миграции).
 
 Все объекты консультанта лежат в **отдельной схеме `ekt`**. Проект Supabase может быть общим с
 другими приложениями, и схема гарантирует, что таблицы и права не пересекаются. Схема `ekt`
