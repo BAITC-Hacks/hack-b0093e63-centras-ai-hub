@@ -1,8 +1,9 @@
 // Build the embeddable widget: web/src/widget.ts → web/public/widget.js
+// and copy it into the Chrome extension (extension/widget.js), which injects it into ekt.kz
 //   node web/build.mjs           production build (minified IIFE, no sourcemap)
 //   node web/build.mjs --watch   rebuild on change + serve web/public on http://localhost:5173
 import * as esbuild from 'esbuild';
-import { readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const watch = process.argv.includes('--watch');
 const outfile = resolve(here, 'public/widget.js');
-const LIMIT = 40 * 1024;
+const LIMIT = 50 * 1024;
+const extension = resolve(here, '../extension');
 
 /** Minify the CSS template in src/styles.ts at build time (esbuild does not touch strings). */
 const minifyCss = {
@@ -33,7 +35,7 @@ const options = {
   bundle: true,
   format: 'iife',
   platform: 'browser',
-  target: ['es2019'],
+  target: ['es2020'],
   minify: !watch,
   sourcemap: watch ? 'inline' : false,
   legalComments: 'none',
@@ -49,9 +51,11 @@ function report() {
   const kb = (n) => (n / 1024).toFixed(1) + ' KB';
   console.log(`widget.js: ${kb(size)} (gzip ${kb(gz)}), limit ${kb(LIMIT)}`);
   if (!watch && size > LIMIT) {
-    console.error('widget.js exceeds the 40 KB budget');
+    console.error('widget.js exceeds the 50 KB budget');
     process.exit(1);
   }
+  // The extension ships the production build only (watch builds are unminified).
+  if (!watch && existsSync(resolve(extension, 'manifest.json'))) copyFileSync(outfile, resolve(extension, 'widget.js'));
 }
 
 if (watch) {

@@ -6,7 +6,7 @@
   <title>ИИ-консультант EKT</title>
   <meta name="description" content="ИИ-консультант для интернет-магазина ekt.kz: подбор электротехники, цены, условия и филиалы — прямо в чате на сайте.">
   <!-- Адрес Edge Function чата. Замените при деплое; для локальной проверки можно открыть страницу с ?api=http://localhost:8787 -->
-  <meta name="ekt-api" content="https://YOUR-PROJECT.supabase.co/functions/v1/chat">
+  <meta name="ekt-api" content="https://gqdwplbvxopanapxzlaw.supabase.co/functions/v1/chat">
   <meta name="theme-color" content="#2c7294">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232c7294'/%3E%3Cpath d='M17.5 5 8 18h7l-1.5 9L24 14h-7z' fill='%23f4b301'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,6 +105,15 @@
     .hint { margin-top: 14px; font-size: 15px; color: var(--muted); }
     .hint code { font: 13.5px var(--mono); }
 
+    .ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+    .way { border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; background: #fff; }
+    .way h3 { font-size: 20px; color: var(--navy); margin-bottom: 12px; }
+    .way h3 small { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 4px; background: var(--canvas); color: var(--muted); font-size: 13px; font-weight: 400; vertical-align: 3px; }
+    .way:first-child { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+    .way:first-child h3 small { background: var(--yellow); color: var(--navy); font-weight: 700; }
+    .way ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+    .way code { font: 14px var(--mono); background: var(--canvas); padding: 1px 5px; border-radius: 4px; }
+    .way-note { margin-top: 12px; font-size: 15px; color: var(--muted); }
     .limits { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; max-width: 46em; }
     .limits li { padding-left: 28px; position: relative; }
     .limits li::before { content: ""; position: absolute; left: 4px; top: .62em; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--teal); }
@@ -118,6 +127,7 @@
       .lead { font-size: 18px; }
       .shot { justify-self: stretch; max-width: none; aspect-ratio: 16 / 10; }
       .embed { grid-template-columns: 1fr; }
+      .ways { grid-template-columns: 1fr; }
     }
     @media (max-width: 640px) {
       body { font-size: 16px; }
@@ -141,7 +151,9 @@
         <span>EKT<small>ГК «Электрокомплект»</small></span>
       </a>
       <nav aria-label="Разделы">
+        <a href="#live">Попробовать на ekt.kz</a>
         <a href="#can">Возможности</a>
+        <a href="#hands">Действия на сайте</a>
         <a href="#try">Примеры</a>
         <a href="#embed">Встраивание</a>
       </nav>
@@ -164,6 +176,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
               Открыть консультанта
             </button>
+            <a class="btn secondary" href="#live">Попробовать на ekt.kz</a>
             <a class="btn secondary" href="#embed">Как встроить на сайт</a>
           </div>
           <ul class="facts">
@@ -173,8 +186,8 @@
           </ul>
         </div>
         <figure class="shot">
-          <img src="https://ekt.kz/bitrix/templates/ekt/images/trade-marks/ekt-main.jpg" alt="Модульные автоматы в электрощите" width="475" height="552" loading="eager">
-          <figcaption><b>Покупатель:</b> нужен автомат на 25 А для розеток на кухне — какой взять и сколько стоит?</figcaption>
+          <img src="https://ekt.kz/bitrix/templates/ekt/images/trade-marks/ekt-main.jpg" alt="Электрощит с модульной аппаратурой, фото с ekt.kz" width="475" height="552" loading="eager">
+          <figcaption><b>Покупатель:</b> нужна лампа E27 тёплого света в спальню — какую взять и сколько стоит?</figcaption>
         </figure>
       </div>
     </section>
@@ -186,11 +199,12 @@
           <p>Отвечает только по данным, собранным с ekt.kz. Если информации нет — честно говорит об этом и предлагает связаться с филиалом.</p>
         </div>
         <dl class="abilities">
-          <div><dt>Подбор товаров</dt><dd>Понимает задачу своими словами («лампа в спальню», «автомат для духовки») и предлагает подходящие позиции с фильтрами по бренду, цене и характеристикам.</dd></div>
+          <div><dt>Подбор товаров</dt><dd>Понимает задачу своими словами («лампа в спальню», «лампочка для люстры с цоколем E14») и предлагает подходящие позиции с фильтрами по бренду, цене и характеристикам.</dd></div>
           <div><dt>Цены и артикулы</dt><dd>Показывает цену на сайте и в магазине, артикул и ссылку на карточку товара. Цены указаны для Алматы, на дату последнего обновления.</dd></div>
           <div><dt>Сравнение и аналоги</dt><dd>Сопоставляет характеристики нескольких товаров и подсказывает замену, если нужной позиции нет.</dd></div>
           <div><dt>Условия покупки</dt><dd>Как оформить заказ, способы оплаты, доставка, возврат и обмен: ответы по страницам сайта.</dd></div>
           <div><dt>Филиалы</dt><dd>Адреса, телефоны и график работы в девяти городах Казахстана.</dd></div>
+          <div><dt>Действия на сайте</dt><dd>Открывает карточку товара, страницу возврата или контактов в том же окне, подсвечивает цену и кнопки, по просьбе покупателя нажимает «Купить» и заполняет заявление.</dd></div>
           <div><dt>Заявка менеджеру</dt><dd>Если нужен расчёт или консультация специалиста, собирает контакты и передаёт заявку — только с согласия покупателя.</dd></div>
         </dl>
       </div>
@@ -204,12 +218,64 @@
         </div>
         <ul class="ask-list">
           <li><button class="ask" type="button" data-ask="Какую лампу выбрать для спальни с цоколем E27?"><span>Какую лампу выбрать для спальни с цоколем E27?<small>подбор по задаче</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
-          <li><button class="ask" type="button" data-ask="Нужен автомат на 25А для розеток на кухне"><span>Нужен автомат на 25А для розеток на кухне<small>подбор и цены</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
-          <li><button class="ask" type="button" data-ask="Сравни кабель ВВГнг 3х2,5 разных производителей по цене"><span>Сравни кабель ВВГнг 3х2,5 разных производителей<small>сравнение</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
-          <li><button class="ask" type="button" data-ask="Где находится филиал в Астане и как он работает в субботу?"><span>Где филиал в Астане и как он работает в субботу?<small>филиалы</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Подобрать лампу E27 тёплого света"><span>Подобрать лампу E27 тёплого света<small>подбор и фильтры каталога</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Добавь в корзину лампу для люстры E14"><span>Добавь в корзину лампу для люстры E14<small>консультант сам нажмёт «Купить»</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Где вы находитесь в Астане?"><span>Где вы находитесь в Астане?<small>филиалы</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Хочу оформить возврат"><span>Хочу оформить возврат<small>откроет и заполнит заявление</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
           <li><button class="ask" type="button" data-ask="Можно ли вернуть товар, если он не подошёл?"><span>Можно ли вернуть товар, если он не подошёл?<small>условия</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
           <li><button class="ask" type="button" data-ask="Үйге арналған LED шам керек, бағасы қанша?"><span>Үйге арналған LED шам керек, бағасы қанша?<small>на казахском</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
         </ul>
+      </div>
+    </section>
+
+    <section class="block" id="hands">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Консультант действует на сайте</h2>
+          <p>Кроме ответа в чате консультант показывает нужное прямо на настоящем ekt.kz. Всё происходит в том же окне, диалог сохраняется при переходе между страницами. Попробовать можно уже сейчас — <a href="#live">через расширение браузера</a>.</p>
+        </div>
+        <dl class="abilities">
+          <div><dt>Переход</dt><dd>«Открываю карточку товара»: плашка с кнопкой «Отмена» на 2 секунды, затем переход на карточку, в корзину, на страницу возврата, оплаты или контактов.</dd></div>
+          <div><dt>Подсветка</dt><dd>Прокручивает страницу и обводит цену, кнопку «Купить», характеристики, условия возврата или телефон филиала, рядом появляется подсказка.</dd></div>
+          <div><dt>Нажатие</dt><dd>По явной просьбе покупателя нажимает «Купить» (товар попадает в корзину ekt.kz), открывает «Купить в 1 клик» или запускает поиск. Оформление заказа остаётся за человеком.</dd></div>
+          <div><dt>Заполнение форм</dt><dd>Открывает формы сайта «Оставить заявку» и «Купить в 1 клик» и вписывает данные из диалога, например заявку на возврат с номером заказа и причиной. Отправляет форму сам покупатель.</dd></div>
+          <div><dt>Поиск по сайту</dt><dd>Вводит запрос в строку поиска ekt.kz («лампа E27 4000K») и показывает результаты.</dd></div>
+          <div><dt>Следующий шаг</dt><dd>Предлагает кнопки быстрых ответов: «Открыть карточку», «Добавить в корзину», «Показать на карте».</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="block" id="live">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Как попробовать на настоящем ekt.kz</h2>
+          <p>Консультант работает поверх живого сайта: открывает карточки, подсвечивает цены, нажимает «Купить» и заполняет формы ekt.kz. Сам сайт для этого менять не нужно.</p>
+        </div>
+        <div class="ways">
+          <article class="way">
+            <h3>Расширение Chrome <small>рекомендуем</small></h3>
+            <ol>
+              <li>Скачайте папку <code>extension/</code> из репозитория проекта.</li>
+              <li>Откройте <code>chrome://extensions</code> и включите «Режим разработчика».</li>
+              <li>Нажмите «Загрузить распакованное» и выберите папку <code>extension/</code>.</li>
+              <li>Откройте <a href="https://ekt.kz/catalog/svetilniki_lampy/lampy/" target="_blank" rel="noopener">ekt.kz</a>: справа внизу появится «Задать вопрос». Консультант остаётся с вами на всех страницах сайта.</li>
+            </ol>
+            <p class="way-note">Работает в Chrome, Edge, Яндекс Браузере и других браузерах на Chromium.</p>
+          </article>
+          <article class="way">
+            <h3>Букмарклет <small>на одну страницу</small></h3>
+            <ol>
+              <li>Откройте <a href="bookmarklet.html">страницу с букмарклетом</a> и перетащите кнопку на панель закладок.</li>
+              <li>Откройте любую страницу ekt.kz и нажмите закладку.</li>
+            </ol>
+            <p class="way-note">После перехода на другую страницу сайта закладку нужно нажать снова: для сквозной работы используйте расширение.</p>
+          </article>
+          <article class="way">
+            <h3>На сайте для всех <small>продакшен</small></h3>
+            <p>Одна строка в шаблоне Bitrix (<code>footer.php</code>) перед <code>&lt;/body&gt;</code>, код ниже. У ekt.kz нет Content-Security-Policy, а функция чата уже разрешает запросы с <code>https://ekt.kz</code>.</p>
+          </article>
+        </div>
+        <p class="hint">Попробуйте: «Подбери лампу E27 4000K», затем «Открой карточку» и «Добавь в корзину»; «Хочу оформить возврат»; «Где вы находитесь в Астане?». Консультант ничего не отправляет сам: формы отправляет покупатель.</p>
       </div>
     </section>
 
@@ -226,6 +292,7 @@
               <pre id="snippet"></pre>
             </div>
             <p class="hint">Программное управление: <code>EKTConsultant.open()</code>, <code>EKTConsultant.close()</code>, <code>EKTConsultant.ask("вопрос")</code>.</p>
+            <p class="hint">Действия на странице находят элементы по классам ekt.kz (<code>.detail_info__price__site</code>, <code>.btn-cart</code>, <code>.tab_item_chars</code>…). Точный элемент можно указать атрибутом <code>data-ekt-target="price"</code>, поле формы — <code>data-ekt-field="phone"</code>.</p>
           </div>
           <table class="attrs">
             <thead><tr><th scope="col">Атрибут</th><th scope="col">Назначение</th></tr></thead>
@@ -269,7 +336,9 @@
       var PLACEHOLDER = 'YOUR-PROJECT.supabase.co';
       var meta = document.querySelector('meta[name="ekt-api"]');
       var fromQuery = new URLSearchParams(location.search).get('api');
-      var api = (fromQuery && /^https?:\/\//.test(fromQuery) ? fromQuery : '') || (meta && meta.content) || 'https://YOUR-PROJECT.supabase.co/functions/v1/chat';
+      // ?api= only for the local mock server (http://localhost:* / http://127.0.0.1:*); anything else is ignored.
+      var localApi = fromQuery && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/[^\s"'<>]*)?$/.test(fromQuery) ? fromQuery : '';
+      var api = localApi || (meta && meta.content) || 'https://YOUR-PROJECT.supabase.co/functions/v1/chat';
       if (api.indexOf(PLACEHOLDER) !== -1) document.getElementById('api-notice').hidden = false;
 
       // Embed snippet shown on the page (points at this deployment's widget.js).

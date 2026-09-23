@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Букмарклет консультанта EKT</title>
+  <meta name="description" content="Закладка, которая запускает ИИ-консультанта на открытой странице ekt.kz.">
+  <meta name="ekt-api" content="https://gqdwplbvxopanapxzlaw.supabase.co/functions/v1/chat">
+  <meta name="theme-color" content="#2c7294">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232c7294'/%3E%3Cpath d='M17.5 5 8 18h7l-1.5 9L24 14h-7z' fill='%23f4b301'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --teal: #2c7294; --teal-strong: #235c78; --yellow: #f4b301; --navy: #0b4366; --canvas: #f3f6f8; --text: #1c2830; --muted: #53616c; --line: #dce4ea; --font: "PT Sans", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--canvas); color: var(--text); font: 17px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+    ::selection { background: rgba(44, 114, 148, .22); }
+    a { color: var(--teal-strong); text-underline-offset: 3px; }
+    :focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+    .top { background: var(--navy); border-bottom: 4px solid var(--yellow); }
+    .top .wrap { display: flex; align-items: center; min-height: 60px; }
+    .top a { color: #fff; font-weight: 700; text-decoration: none; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+    main .wrap { padding-top: 48px; padding-bottom: 64px; }
+    h1 { font-size: 36px; line-height: 1.15; color: var(--navy); margin: 0 0 14px; text-wrap: balance; }
+    .lead { color: #33424d; max-width: 36em; margin: 0 0 28px; }
+    .card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 1px 2px rgba(11, 67, 102, .06), 0 8px 24px rgba(11, 67, 102, .08); }
+    .bm {
+      display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 22px; border-radius: 26px;
+      background: var(--teal); color: #fff; font-weight: 700; text-decoration: none; cursor: grab;
+      box-shadow: 0 6px 18px rgba(11, 67, 102, .28);
+    }
+    .bm:hover { background: var(--teal-strong); color: #fff; }
+    .bm svg { width: 22px; height: 22px; }
+    ol { margin: 24px 0 0; padding-left: 22px; display: grid; gap: 10px; }
+    .note { margin: 20px 0 0; font-size: 15px; color: var(--muted); }
+    code { font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--canvas); padding: 1px 5px; border-radius: 4px; }
+    @media (max-width: 640px) { h1 { font-size: 28px; } .card { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <header class="top"><div class="wrap"><a href="./">← ИИ-консультант EKT</a></div></header>
+  <main>
+    <div class="wrap">
+      <h1>Консультант на открытой странице ekt.kz</h1>
+      <p class="lead">Закладка запускает ИИ-консультанта прямо на сайте: он подсвечивает цены и кнопки, нажимает «Купить» и заполняет формы ekt.kz по вашей просьбе.</p>
+      <div class="card">
+        <a class="bm" id="bm" href="#" title="Перетащите на панель закладок">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+          Консультант EKT
+        </a>
+        <ol>
+          <li>Перетащите кнопку на панель закладок (показать панель: <code>Ctrl+Shift+B</code>).</li>
+          <li>Откройте любую страницу <a href="https://ekt.kz/catalog/svetilniki_lampy/lampy/" target="_blank" rel="noopener">ekt.kz</a> и нажмите закладку.</li>
+          <li>Спросите, например: «Подбери лампу E27 4000K» или «Хочу оформить возврат».</li>
+        </ol>
+        <p class="note">Закладка действует до перехода на другую страницу: после перехода нажмите её снова, диалог сохранится. Чтобы консультант был на всех страницах сразу, установите расширение из папки <code>extension/</code> (инструкция на <a href="./#live">главной</a>).</p>
+      </div>
+    </div>
+  </main>
+  <script>
+    (function () {
+      var meta = document.querySelector('meta[name="ekt-api"]');
+      var api = meta && meta.content;
+      var src = new URL('widget.js', location.href).href;
+      var code =
+        "(function(){if(window.EKTConsultant){EKTConsultant.open();return}" +
+        "var s=document.createElement('script');s.src=" + JSON.stringify(src) + ";" +
+        "s.setAttribute('data-api'," + JSON.stringify(api) + ");s.setAttribute('data-open','true');" +
+        "document.body.appendChild(s)})()";
+      var a = document.getElementById('bm');
+      a.href = 'javascript:' + encodeURIComponent(code).replace(/%3D/g, '=').replace(/%2C/g, ',').replace(/%3B/g, ';');
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        alert('Перетащите кнопку на панель закладок, затем нажмите закладку на странице ekt.kz.');
+      });
+    })();
+  </script>
+</body>
+</html>

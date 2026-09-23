@@ -37,6 +37,10 @@ export interface Strings {
   you: string;
   assistant: string;
   newReply: string;
+  cancel: string;
+  going: string;
+  openEkt: string;
+  suggestions: string;
 }
 
 const PHONE = '+7 727 346-88-88';
@@ -51,7 +55,7 @@ const ru: Strings = {
   dialogLabel: 'Чат с консультантом',
   welcome:
     'Здравствуйте! Я ИИ-консультант ГК «Электрокомплект». Помогу подобрать товар, сравнить цены, найти ближайший филиал и разобраться с оплатой, доставкой и возвратом.',
-  chips: ['Подобрать лампу для дома', 'Автомат на 25А', 'Адреса и график филиалов', 'Условия возврата'],
+  chips: ['Подобрать лампу E27 тёплого света', 'Добавь в корзину лампу для люстры E14', 'Хочу оформить возврат', 'Где вы находитесь в Астане?'],
   placeholder: 'Спросите о товаре или условиях…',
   inputLabel: 'Ваш вопрос',
   send: 'Отправить',
@@ -79,6 +83,10 @@ const ru: Strings = {
   you: 'Вы',
   assistant: 'Консультант',
   newReply: 'Новый ответ консультанта',
+  cancel: 'Отмена',
+  going: 'Перехожу',
+  openEkt: 'Открыть на ekt.kz',
+  suggestions: 'Варианты ответа',
 };
 
 const kk: Strings = {
@@ -91,7 +99,7 @@ const kk: Strings = {
   dialogLabel: 'Кеңесшімен чат',
   welcome:
     'Сәлеметсіз бе! Мен «Электрокомплект» ТК-ның ЖИ-кеңесшісімін. Тауар таңдауға, бағаларды салыстыруға, жақын филиалды табуға және төлем, жеткізу, қайтару шарттарын түсіндіруге көмектесемін.',
-  chips: ['Үйге шам таңдау', '25А автоматы', 'Филиалдардың мекенжайы мен кестесі', 'Қайтару шарттары'],
+  chips: ['Жылы жарықты E27 шамын таңдау', 'Люстраға E14 шамын себетке қос', 'Тауарды қайтарғым келеді', 'Астанада қай жердесіздер?'],
   placeholder: 'Тауар немесе шарттар туралы сұраңыз…',
   inputLabel: 'Сұрағыңыз',
   send: 'Жіберу',
@@ -119,6 +127,10 @@ const kk: Strings = {
   you: 'Сіз',
   assistant: 'Кеңесші',
   newReply: 'Кеңесшіден жаңа жауап',
+  cancel: 'Болдырмау',
+  going: 'Өтіп жатырмын',
+  openEkt: 'ekt.kz сайтында ашу',
+  suggestions: 'Жауап нұсқалары',
 };
 
 const en: Strings = {
@@ -131,7 +143,7 @@ const en: Strings = {
   dialogLabel: 'Chat with the assistant',
   welcome:
     'Hello! I am the AI assistant of Elektrokomplekt. I can help you choose a product, compare prices, find the nearest branch and explain payment, delivery and returns.',
-  chips: ['Pick a bulb for home', '25A circuit breaker', 'Branch addresses and hours', 'Return policy'],
+  chips: ['Warm-light E27 bulb', 'Add an E14 chandelier bulb to cart', 'I want to return an item', 'Where are you in Astana?'],
   placeholder: 'Ask about a product or terms…',
   inputLabel: 'Your question',
   send: 'Send',
@@ -159,6 +171,10 @@ const en: Strings = {
   you: 'You',
   assistant: 'Assistant',
   newReply: 'New reply from the assistant',
+  cancel: 'Cancel',
+  going: 'Opening',
+  openEkt: 'Open on ekt.kz',
+  suggestions: 'Suggested replies',
 };
 
 const TABLE: Record<Lang, Strings> = { ru, kk, en };

@@ -6,7 +6,9 @@
  * Optional attributes: data-title, data-color, data-position="left|right",
  * data-open="true", data-lang="ru|kk|en", data-city.
  * Public API: window.EKTConsultant.open() / .close() / .ask(text)
+ * UI actions (SSE `action`: navigate/highlight/click/fill/suggest on ekt.kz): see actions.ts.
  */
+import { parseAction, resumePending, runActions, type ActionEnv, type UIAction } from './actions';
 import { icons } from './icons';
 import { detectLang, strings, type Strings } from './i18n';
 import { renderMarkdown } from './markdown';
@@ -71,6 +73,7 @@ function safeUrl(u: unknown): string | null {
 }
 
 const EKT_HOST = /(^|\.)ekt\.kz$/i;
+
 const onEkt = () => EKT_HOST.test(location.hostname);
 
 /** On ekt.kz itself, links to ekt.kz open in the same tab (chat survives via storage). */
@@ -422,6 +425,16 @@ function mount(cfg: Config): EKTConsultantAPI {
       for (const p of m.products.slice(0, 8)) if (p && p.name) list.append(productCard(p));
       row.append(list);
     }
+    if (m.suggest && m.suggest.length && m.status === 'done' && messages[messages.length - 1] === m) {
+      const list = h('div', { class: 'chips suggest', role: 'group', 'aria-label': t.suggestions });
+      for (const o of m.suggest.slice(0, 4)) {
+        const chip = h('button', { type: 'button', class: 'chip' });
+        chip.textContent = o;
+        chip.addEventListener('click', () => ask(o));
+        list.append(chip);
+      }
+      row.append(list);
+    }
     if (m.status === 'stopped') {
       const n = h('div', { class: 'note' });
       n.textContent = t.stopped;
@@ -483,6 +496,7 @@ function mount(cfg: Config): EKTConsultantAPI {
     text = text.trim().slice(0, MAX_LEN);
     if (!text || streaming) return;
     if (welcomeRow) welcomeRow.querySelector('.chips')?.remove();
+    log.querySelectorAll('.suggest').forEach((el) => el.remove());
 
     if (!isRetry) {
       const um: Msg = { id: uid(), role: 'user', text };
@@ -500,6 +514,7 @@ function mount(cfg: Config): EKTConsultantAPI {
 
     const ctrl = new AbortController();
     const myGen = gen;
+    const acts: UIAction[] = [];
     controller = ctrl;
     try {
       const res = await fetch(cfg.api, {
@@ -552,6 +567,14 @@ function mount(cfg: Config): EKTConsultantAPI {
               scheduleRender(am);
             }
             break;
+          case 'action': {
+            // Never trust the server blindly: anything outside the contract is dropped.
+            const a = parseAction(data);
+            if (a && a.type === 'suggest') am.suggest = a.options;
+            else if (a) acts.push(a);
+            else if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) console.warn('[EKT consultant] ignored action', data);
+            break;
+          }
           case 'done':
             am.messageId = data?.message_id;
             am.status = 'done';
@@ -603,6 +626,7 @@ function mount(cfg: Config): EKTConsultantAPI {
         announce(`${t.assistant}: ${node?.textContent || ''}`);
       }
       if (isOpen && shadow.activeElement === sendBtn) input.focus();
+      if (am.status === 'done' && acts.length && !queued) runActions(acts, actionEnv);
       if (queued) {
         const q = queued;
         queued = null;
@@ -646,6 +670,16 @@ function mount(cfg: Config): EKTConsultantAPI {
     input.focus();
     persist();
   }
+
+  /* ── UI actions ── */
+  const actionEnv: ActionEnv = {
+    t,
+    // On phones the panel covers the page: step aside so the shopper sees what happens.
+    onVisual: () => {
+      if (mq.matches) close();
+    },
+    beforeNavigate: () => persist(),
+  };
 
   /* ── open / close / focus ── */
   let savedOverflow: string | null = null;
@@ -782,7 +816,13 @@ function mount(cfg: Config): EKTConsultantAPI {
   updateComposer();
   launcher.classList.toggle('unread', unread);
   // Re-open after navigation on desktop only: on phones the panel would cover the page the user just opened.
-  if (cfg.open || (saved?.open && !mq.matches)) open(false);
+  if (cfg.open || (saved?.open && !mq.matches)) {
+    open(false);
+    // Restored after a navigation: show the latest reply once fonts and card images have settled.
+    setTimeout(() => scrollToEnd(true), 400);
+  }
+  // Actions queued by a navigate on the previous page (highlight the price, fill the form…).
+  resumePending(actionEnv);
 
   return {
     open: () => open(),

@@ -183,6 +183,10 @@ svg { display: block; flex: none; }
 }
 .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 .chip:active { background: #dbe9f0; }
+/* Quick replies offered by the consultant (next step of a scenario) */
+.suggest { margin-top: 8px; }
+.suggest .chip { background: var(--accent-soft); border-color: transparent; font-weight: 700; }
+.suggest .chip:hover { border-color: var(--accent); }
 
 /* Product cards */
 .products { display: grid; gap: 8px; margin-top: 8px; width: 92%; }

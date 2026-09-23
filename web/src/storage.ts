@@ -22,6 +22,8 @@ export interface Msg {
   messageId?: string | number;
   rating?: 1 | -1;
   error?: string;
+  /** Quick-reply options offered with this reply (shown only while it is the last message). */
+  suggest?: string[];
 }
 
 export interface Saved {
@@ -82,6 +84,61 @@ export function save(key: string, data: Omit<Saved, 'v' | 'updatedAt'>, now = Da
 export function clear(key: string): void {
   try {
     window.localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ── deferred UI actions (survive a same-tab navigation) ── */
+
+export const PENDING_KEY = 'ekt-consultant:pending';
+export const PENDING_TTL_MS = 30 * 1000;
+
+export interface Pending<T = unknown> {
+  v: 1;
+  at: number;
+  /** Normalized path+query of the page the actions are meant for. */
+  page: string;
+  actions: T[];
+}
+
+/** sessionStorage is per tab — exactly the scope of a same-window navigation. */
+function session(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function savePending<T>(page: string, actions: T[], now = Date.now()): void {
+  try {
+    const payload: Pending<T> = { v: 1, at: now, page, actions };
+    session()?.setItem(PENDING_KEY, JSON.stringify(payload));
+  } catch {
+    /* storage unavailable — deferred actions are simply lost */
+  }
+}
+
+/** Read and remove the queue. Returns actions only if they are fresh and meant for `page`. */
+export function takePending<T>(page: string, now = Date.now()): T[] {
+  const s = session();
+  try {
+    const raw = s?.getItem(PENDING_KEY);
+    if (!raw) return [];
+    s!.removeItem(PENDING_KEY);
+    const data = JSON.parse(raw) as Pending<T>;
+    if (!data || data.v !== 1 || !Array.isArray(data.actions)) return [];
+    if (now - data.at > PENDING_TTL_MS || data.page !== page) return [];
+    return data.actions;
+  } catch {
+    return [];
+  }
+}
+
+export function clearPending(): void {
+  try {
+    session()?.removeItem(PENDING_KEY);
   } catch {
     /* ignore */
   }

@@ -4,8 +4,19 @@
 //
 // Magic words in the message:  "ошибка" → SSE error event · "500" → HTTP 500 JSON
 //                              "обрыв"  → stream cut without `done`
+// UI actions (SSE `action`, see web/src/actions.ts) on real seed products and real ekt.kz URLs:
+//   "корзин"             → (navigate to the product) + highlight price + click buy_button + suggest
+//   "перейти в корзину"  → navigate /personal/cart/ · "1 клик" → fill buy_one_click (opens the modal)
+//   "возврат"            → navigate /return/ + highlight return_conditions + fill lead_form (question) + suggest
+//   "E27 4000" / "тёпл"  → products + fill search + click search_submit + suggest
+//   "лампа" / "карточк"  → navigate product + highlight price, buy_button + suggest
+//   "характеристик"      → highlight characteristics · "оплат" → navigate /payments/ + highlight payment_methods
+//   "астан|филиал|где"   → navigate /about/contacts/ + highlight contacts_phone
+//   "заявк|менеджер"     → fill lead_form · "найди" → fill search + click search_submit
+// On ekt.kz: load the widget with data-api="http://localhost:8787" (see extension/README.md).
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const PORT = Number(process.env.PORT || 8787);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -40,6 +51,225 @@ const PRODUCTS = [
     price_site: 1450,
     price_store: 1590,
     image_url: 'https://example.invalid/broken.jpg',
+  },
+];
+
+/* ── seed products for the "hands" scenarios ───────────── */
+let SEED = [];
+try {
+  SEED = readFileSync(new URL('../../seed/products.jsonl', import.meta.url), 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+} catch {
+  console.warn('seed/products.jsonl not found: action scenarios use fallback products');
+}
+const card = (p) =>
+  p && { id: p.id, name: p.name, url: p.url, sku: p.sku, brand: p.brand, price_site: p.price_site, price_store: p.price_store, image_url: p.image_url };
+const attr = (p, k) => String(p.attrs?.[k] ?? '').trim();
+const pick = (fn, n) => SEED.filter(fn).sort((a, b) => (a.price_site || 1e9) - (b.price_site || 1e9)).slice(0, n);
+const fmt = (v) => (v ? new Intl.NumberFormat('ru-RU').format(v) + ' ₸' : 'цена по запросу');
+let lastProduct = null; // "Открыть карточку" / "Добавить в корзину" refer to it
+const onPage = (ctx, url) => (ctx.page_url || '').replace(/\/+$/, '') === String(url || '').replace(/\/+$/, '');
+
+const PHONE = '+7 701 123-45-67';
+const SCENARIOS = [
+  {
+    test: /перейти в корзин|открой корзин|оформить заказ/i,
+    status: [['navigate_to', 'Открываю корзину…']],
+    build: () => ({
+      text: 'Открываю корзину ekt.kz: проверьте количество и оформите заказ — оформление остаётся за вами.',
+      products: [],
+      actions: [
+        { type: 'navigate', url: 'https://ekt.kz/personal/cart/', label: 'Открываю корзину' },
+        { type: 'highlight', target: 'cart', note: 'Ваша корзина' },
+      ],
+    }),
+  },
+  {
+    test: /корзин/i,
+    status: [['search_products', 'Ищу лампу…']],
+    build(ctx) {
+      const e14 = /e14|люстр/i.test(ctx.message) && pick((x) => attr(x, 'Тип цоколя') === 'E14', 1)[0];
+      const p = e14 || lastProduct || pick((x) => attr(x, 'Тип цоколя') === 'E14', 1)[0] || PRODUCTS[0];
+      lastProduct = p;
+      const here = onPage(ctx, p.url);
+      return {
+        text:
+          `Добавляю в корзину **${p.name}** — ${fmt(p.price_site)} на сайте.\n\n` +
+          (here ? '' : 'Сначала открою карточку, затем нажму «Купить». ') +
+          'Оформить заказ можно в корзине ekt.kz.',
+        products: [card(p)],
+        actions: [
+          ...(here ? [] : [{ type: 'navigate', url: p.url, label: 'Открываю карточку товара' }]),
+          { type: 'highlight', target: 'price', note: 'Цена на сайте' },
+          { type: 'click', target: 'buy_button', label: 'Нажимаю «Купить»' },
+          { type: 'suggest', options: ['Перейти в корзину', 'Купить в 1 клик'] },
+        ],
+      };
+    },
+  },
+  {
+    test: /1 клик|один клик/i,
+    status: [['get_product', 'Готовлю заказ в 1 клик…']],
+    build: () => ({
+      text: 'Открываю «Купить в 1 клик» и вписываю ваши данные. **Проверьте и нажмите «Отправить»** — сам я форму не отправляю.',
+      products: [],
+      actions: [{ type: 'fill', form: 'buy_one_click', label: 'Заполняю «Купить в 1 клик»', fields: { name: 'Айгерим', phone: PHONE, email: 'aigerim@example.kz' } }],
+    }),
+  },
+  {
+    test: /возврат|вернуть/i,
+    status: [['search_knowledge', 'Смотрю условия возврата…']],
+    build: () => ({
+      text:
+        'Товар надлежащего качества можно вернуть или обменять в течение **14 дней**, если он не был в употреблении и сохранены упаковка и чек.\n\n' +
+        'Открываю условия возврата и готовлю заявку менеджеру с вашими данными. **Проверьте и нажмите «Отправить»** — сам я форму не отправляю.',
+      products: [],
+      actions: [
+        { type: 'navigate', url: 'https://ekt.kz/return/', label: 'Открываю условия возврата' },
+        { type: 'highlight', target: 'return_conditions', note: 'Условия возврата и обмена' },
+        {
+          type: 'fill',
+          form: 'lead_form',
+          label: 'Заполняю заявку на возврат',
+          fields: {
+            name: 'Айгерим Нурланова',
+            phone: PHONE,
+            email: 'aigerim@example.kz',
+            question: 'Возврат: заказ № EKT-102938 от 15.09.2026, товар — LED лампа A60 10W E27 4000K MEGALIGHT, причина — не подошёл цоколь, упаковка не вскрыта.',
+          },
+        },
+        { type: 'suggest', options: ['Где ближайший филиал?', 'Как оплатить заказ?'] },
+      ],
+    }),
+  },
+  {
+    test: /e27.*(4000|тёпл|тепл)|(4000|тёпл|тепл).*e27|тёплого света/i,
+    status: [['category_facets', 'Смотрю характеристики ламп…'], ['search_products', 'Подбираю лампы…']],
+    build(ctx) {
+      const neutral = /4000/.test(ctx.message);
+      const temps = neutral ? ['4000'] : ['2700', '3000'];
+      const items = pick((x) => attr(x, 'Тип цоколя') === 'E27' && temps.includes(attr(x, 'Цветовая температура')), 3);
+      lastProduct = items[0] || lastProduct;
+      const q = neutral ? 'лампа E27 4000K' : 'лампа E27 3000K';
+      return {
+        text:
+          `Вот лампы с цоколем **E27** и ${neutral ? 'нейтральным светом **4000K**' : 'тёплым светом **2700–3000K**'}:\n\n` +
+          items.map((x) => `- [${x.name}](${x.url}) — **${fmt(x.price_site)}**`).join('\n') +
+          `\n\nИщу на сайте «${q}», чтобы вы увидели все варианты.`,
+        products: items.map(card),
+        actions: [
+          { type: 'fill', form: 'search', label: 'Ввожу запрос в поиск', fields: { q } },
+          { type: 'click', target: 'search_submit', label: 'Ищу на ekt.kz' },
+          { type: 'suggest', options: ['Открыть карточку', 'Добавить в корзину'] },
+        ],
+      };
+    },
+  },
+  {
+    test: /карточк/i,
+    status: [['get_product', 'Открываю товар…']],
+    build() {
+      const p = lastProduct || pick((x) => attr(x, 'Тип цоколя') === 'E27', 1)[0] || PRODUCTS[0];
+      lastProduct = p;
+      return {
+        text: `Открываю карточку **${p.name}**: цена на сайте ${fmt(p.price_site)}${p.price_store ? `, в магазине ${fmt(p.price_store)}` : ''}.`,
+        products: [],
+        actions: [
+          { type: 'navigate', url: p.url, label: 'Открываю карточку товара' },
+          { type: 'highlight', target: 'price', note: 'Цена на сайте' },
+          { type: 'highlight', target: 'buy_button', note: 'Кнопка «Купить»' },
+          { type: 'suggest', options: ['Добавить в корзину', 'Показать характеристики'] },
+        ],
+      };
+    },
+  },
+  {
+    test: /характеристик/i,
+    status: [['get_product', 'Смотрю характеристики…']],
+    build: () => ({
+      text: 'Показываю характеристики на карточке: цоколь, мощность, цветовая температура и форма колбы.',
+      products: [],
+      actions: [{ type: 'highlight', target: 'characteristics', note: 'Характеристики товара' }],
+    }),
+  },
+  {
+    test: /оплат|доставк/i,
+    status: [['search_knowledge', 'Смотрю условия оплаты…']],
+    build: () => ({
+      text: 'Физлица платят картой онлайн, наличными при получении или картой в торговом зале; юрлица — по счёту. Показываю на странице оплаты.',
+      products: [],
+      actions: [
+        { type: 'navigate', url: 'https://ekt.kz/payments/', label: 'Открываю оплату' },
+        { type: 'highlight', target: 'payment_methods', note: 'Способы оплаты' },
+      ],
+    }),
+  },
+  {
+    test: /астан|филиал|адрес|контакт|где вы/i,
+    status: [['get_branches', 'Смотрю филиалы…']],
+    build: () => ({
+      text:
+        '### Астана\n- Адрес: район Байконыр, Жетиген, 28\n- Телефоны: +7 (700) 222 05 14, +7 (747) 222 05 21\n- График: пн–пт 09:00–18:00, сб 09:00–13:00, обед 13:00–14:00\n\nОткрываю страницу контактов.',
+      products: [],
+      actions: [
+        { type: 'navigate', url: 'https://ekt.kz/about/contacts/', label: 'Открываю контакты' },
+        { type: 'highlight', target: 'contacts_phone', note: 'Телефоны филиалов' },
+        { type: 'suggest', options: ['Оставить заявку менеджеру', 'Как оплатить заказ?'] },
+      ],
+    }),
+  },
+  {
+    test: /заявк|менеджер|перезвон/i,
+    status: [['create_lead', 'Готовлю заявку…']],
+    build: () => ({
+      text: 'Открываю форму «Оставить заявку» и вписываю данные. Проверьте и нажмите «Отправить» — менеджер перезвонит.',
+      products: [],
+      actions: [
+        {
+          type: 'fill',
+          form: 'lead_form',
+          label: 'Заполняю заявку',
+          fields: { name: 'Айгерим', phone: PHONE, email: 'aigerim@example.kz', question: 'Нужно 20 ламп E27 4000K для офиса, Астана.' },
+        },
+      ],
+    }),
+  },
+  {
+    test: /найди|поиск/i,
+    status: [['search_products', 'Ищу…']],
+    build: () => ({
+      text: 'Ввожу запрос в поиск ekt.kz.',
+      products: [],
+      actions: [
+        { type: 'fill', form: 'search', label: 'Ввожу запрос', fields: { q: 'Philips' } },
+        { type: 'click', target: 'search_submit', label: 'Ищу на ekt.kz' },
+      ],
+    }),
+  },
+  {
+    test: /ламп|лампоч/i,
+    status: [['search_products', 'Ищу лампы…']],
+    build() {
+      const items = pick((x) => attr(x, 'Тип цоколя') === 'E27' && attr(x, 'Цветовая температура') === '4000', 2);
+      lastProduct = items[0] || lastProduct;
+      return {
+        text:
+          'Для дома чаще всего берут светодиодные лампы с цоколем **E27**:\n\n' +
+          items.map((x) => `- [${x.name}](${x.url}) — **${fmt(x.price_site)}**`).join('\n') +
+          '\n\nОткрываю карточку первой и показываю цену.',
+        products: items.map(card),
+        actions: items.length
+          ? [
+              { type: 'navigate', url: items[0].url, label: 'Открываю карточку товара' },
+              { type: 'highlight', target: 'price', note: 'Цена на сайте' },
+              { type: 'highlight', target: 'buy_button', note: 'Можно сразу купить' },
+              { type: 'suggest', options: ['Добавить в корзину', 'Показать характеристики'] },
+            ]
+          : [],
+      };
+    },
   },
 ];
 
@@ -121,7 +351,10 @@ createServer(async (req, res) => {
   const send = (event, data) => !closed && res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   send('session', { session_id: body.session_id || randomUUID() });
-  const answer = ANSWERS.find((a) => a.test.test(message));
+  const scenario = SCENARIOS.find((a) => a.test.test(message));
+  const answer = scenario
+    ? { status: scenario.status, ...scenario.build({ message, page_url: String(body.page_url || '') }) }
+    : ANSWERS.find((a) => a.test.test(message));
   for (const [tool, label] of answer.status) {
     send('status', { tool, label });
     await sleep(700);
@@ -144,6 +377,7 @@ createServer(async (req, res) => {
     if (/обрыв/i.test(message) && i > text.length / 2) return res.destroy();
   }
   if (answer.products.length) send('products', { items: answer.products });
+  for (const a of answer.actions || []) send('action', a);
   send('done', { message_id: Math.floor(Math.random() * 1e6) });
   res.end();
 }).listen(PORT, () => console.log(`Mock chat API on http://localhost:${PORT}  (POST /, POST /feedback)`));

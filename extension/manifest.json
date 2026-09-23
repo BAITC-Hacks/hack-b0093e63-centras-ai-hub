@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "EKT AI-консультант",
+  "short_name": "EKT консультант",
+  "version": "1.0.0",
+  "description": "ИИ-консультант ГК «Электрокомплект» поверх ekt.kz: подбор товаров, подсветка цен, «Купить» и заполнение форм по просьбе покупателя.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://ekt.kz/*", "https://www.ekt.kz/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["widget.js"],
+      "matches": ["https://ekt.kz/*", "https://www.ekt.kz/*"]
+    }
+  ]
+}
