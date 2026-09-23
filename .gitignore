@@ -10,5 +10,4 @@ supabase/.temp/
 supabase/.branches/
 .vercel/
 *.log
-eval/report.json
 /deno.lock
