@@ -61,27 +61,29 @@ export interface KnownData {
 export function collectKnown(data: unknown[], extraTexts: string[] = []): KnownData {
   const urls = new Set<string>(["https://ekt.kz/"].map(normalizeUrl));
   const prices: number[] = [];
-  const walk = (v: unknown, key: string, depth: number) => {
+  // `path` накапливает цепочку ключей (напр. "price_changed.from"), чтобы вложенные поля вроде
+  // price_changed: { from, at } тоже распознавались как цена — по ключу родителя, не только своему.
+  const walk = (v: unknown, path: string, depth: number) => {
     if (depth > 8 || v === null || v === undefined) return;
     if (typeof v === "string") {
       for (const u of extractUrls(v)) urls.add(normalizeUrl(u));
       prices.push(...extractPrices(v));
-      if (/price/i.test(key)) {
+      if (/price/i.test(path)) {
         const n = Number(v);
         if (Number.isFinite(n)) prices.push(n);
       }
       return;
     }
     if (typeof v === "number") {
-      if (/price/i.test(key)) prices.push(v);
+      if (/price/i.test(path)) prices.push(v);
       return;
     }
     if (Array.isArray(v)) {
-      for (const x of v) walk(x, key, depth + 1);
+      for (const x of v) walk(x, path, depth + 1);
       return;
     }
     if (typeof v === "object") {
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, k, depth + 1);
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) walk(x, path ? `${path}.${k}` : k, depth + 1);
     }
   };
   for (const d of data) walk(d, "", 0);

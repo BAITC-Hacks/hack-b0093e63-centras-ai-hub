@@ -305,11 +305,47 @@ export function normalizeKzPhone(raw: string): string | null {
 
 type Executor = (args: Record<string, unknown>, ctx: ToolContext) => Promise<Omit<ToolOutcome, "name" | "args">>;
 
-async function scrapedDates(db: Db, ids: number[]): Promise<string | null> {
-  if (!ids.length) return null;
-  const { data, error } = await db.from("products").select("id, scraped_at").in("id", ids);
-  if (error) return null;
-  return oldestDate((data ?? []).map((r: { scraped_at: unknown }) => r.scraped_at));
+/** Изменение цены сайта товара, известное клиенту: с какой суммы на текущую и когда. */
+export interface PriceChange {
+  from: number;
+  at: string;
+}
+
+interface ProductMeta {
+  dataUpdatedAt: string | null;
+  /** product_id -> изменение цены, только если оно произошло за последние 30 дней. */
+  priceChanges: Map<number, PriceChange>;
+}
+
+const PRICE_CHANGE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Один запрос: дата обновления данных + недавние (30 дней) изменения цены сайта — для карточек search_products. */
+async function productMeta(db: Db, ids: number[]): Promise<ProductMeta> {
+  if (!ids.length) return { dataUpdatedAt: null, priceChanges: new Map() };
+  const { data, error } = await db
+    .from("products")
+    .select("id, scraped_at, price_site_prev, price_changed_at")
+    .in("id", ids);
+  if (error) return { dataUpdatedAt: null, priceChanges: new Map() };
+  const rows = (data ?? []) as {
+    id: unknown;
+    scraped_at: unknown;
+    price_site_prev: unknown;
+    price_changed_at: unknown;
+  }[];
+  const dataUpdatedAt = oldestDate(rows.map((r) => r.scraped_at));
+  const now = Date.now();
+  const priceChanges = new Map<number, PriceChange>();
+  for (const r of rows) {
+    if (!r.price_changed_at) continue;
+    const changedAt = new Date(r.price_changed_at as string);
+    const from = num(r.price_site_prev);
+    const at = isoDate(r.price_changed_at);
+    if (isNaN(changedAt.getTime()) || from === null || !at) continue;
+    if (now - changedAt.getTime() > PRICE_CHANGE_WINDOW_MS) continue;
+    priceChanges.set(Number(r.id), { from, at });
+  }
+  return { dataUpdatedAt, priceChanges };
 }
 
 const searchProducts: Executor = async (args, ctx) => {
@@ -358,23 +394,29 @@ const searchProducts: Executor = async (args, ctx) => {
     relaxed.push("category");
   }
 
-  const items = rows.map((r) => ({
-    id: Number(r.id),
-    name: r.name,
-    url: r.url,
-    sku: r.sku ?? null,
-    brand: r.brand ?? null,
-    category: Array.isArray(r.category_path) ? (r.category_path as string[]).join(" / ") : null,
-    price_site: num(r.price_site),
-    price_store: num(r.price_store),
-    ...(r.order_note ? { order_note: r.order_note } : {}),
-    multiplicity: num(r.multiplicity),
-    attrs: compactAttrs(r.attrs),
-  }));
+  const meta = await productMeta(ctx.db, rows.map((r) => Number(r.id)));
+  const items = rows.map((r) => {
+    const id = Number(r.id);
+    const priceChanged = meta.priceChanges.get(id);
+    return {
+      id,
+      name: r.name,
+      url: r.url,
+      sku: r.sku ?? null,
+      brand: r.brand ?? null,
+      category: Array.isArray(r.category_path) ? (r.category_path as string[]).join(" / ") : null,
+      price_site: num(r.price_site),
+      price_store: num(r.price_store),
+      ...(r.order_note ? { order_note: r.order_note } : {}),
+      ...(priceChanged ? { price_changed: priceChanged } : {}),
+      multiplicity: num(r.multiplicity),
+      attrs: compactAttrs(r.attrs),
+    };
+  });
   const result: Record<string, unknown> = {
     count: items.length,
     items,
-    data_updated_at: await scrapedDates(ctx.db, items.map((i) => i.id)),
+    data_updated_at: meta.dataUpdatedAt,
     prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
   };
   if (relaxed.length) {
@@ -389,7 +431,8 @@ const searchProducts: Executor = async (args, ctx) => {
 
 const PRODUCT_COLUMNS =
   "id, sku, supplier_sku, name, url, category_url, category_path, brand, price_site, price_store, order_note, currency, " +
-  "city, multiplicity, is_new, image_url, description, attrs, is_active, scraped_at";
+  "city, multiplicity, is_new, image_url, description, attrs, is_active, scraped_at, " +
+  "price_site_prev, price_store_prev, price_changed_at";
 
 function urlVariants(raw: string): string[] {
   const u = raw.trim().replace(/^http:\/\//i, "https://").replace(/^https:\/\/www\./i, "https://");
@@ -428,6 +471,7 @@ const getProduct: Executor = async (args, ctx) => {
   if (id === null && !sku && !url) return { result: { error: "Укажи id, sku или url." }, cards: [] };
   if (!row) return { result: { found: false, note: "Товар не найден в каталоге ekt.kz." }, cards: [] };
 
+  const priceChangedAt = row.price_changed_at ? isoDate(row.price_changed_at) : null;
   const item = {
     id: Number(row.id),
     name: row.name,
@@ -446,6 +490,13 @@ const getProduct: Executor = async (args, ctx) => {
     is_active: row.is_active,
     description: truncate(row.description as string, 1500),
     attrs: row.attrs ?? {},
+    ...(priceChangedAt
+      ? {
+        price_site_prev: num(row.price_site_prev),
+        price_store_prev: num(row.price_store_prev),
+        price_changed_at: priceChangedAt,
+      }
+      : {}),
   };
   const result: Record<string, unknown> = {
     found: true,

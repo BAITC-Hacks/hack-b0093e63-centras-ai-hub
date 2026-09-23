@@ -96,6 +96,47 @@ Deno.test("validateAnswer: главная страница ekt.kz разреше
   assertEquals(validateAnswer({ answer: "Сайт: https://ekt.kz/", toolData: [], toolCalled: false }), {});
 });
 
+Deno.test("validateAnswer: прошлая цена товара (price_changed / price_site_prev) считается известной", () => {
+  const priceChangeResult = {
+    args: { query: "лампа E27" },
+    result: {
+      count: 1,
+      items: [
+        {
+          id: 3,
+          name: "Лампа LED A60 8W E27",
+          url: "https://ekt.kz/catalog/lampy/lampa-a60-8w/",
+          sku: "150200552_",
+          price_site: 1500,
+          price_store: 1600,
+          price_changed: { from: 1300, at: "2026-09-10" },
+        },
+      ],
+    },
+  };
+  const answer =
+    "- [Лампа LED A60 8W](https://ekt.kz/catalog/lampy/lampa-a60-8w/) — арт. 150200552_, **1 500 ₸** на сайте " +
+    "(в магазине 1 600 ₸). Цена изменилась с 1 300 ₸ на 1 500 ₸ (2026-09-10).";
+  assertEquals(validateAnswer({ answer, toolData: [priceChangeResult], toolCalled: true }), {});
+
+  const getProductResult = {
+    args: { id: 3 },
+    result: {
+      found: true,
+      item: {
+        id: 3,
+        price_site: 1500,
+        price_store: 1600,
+        price_site_prev: 1300,
+        price_store_prev: 1400,
+        price_changed_at: "2026-09-10",
+      },
+    },
+  };
+  const answer2 = "Раньше стоила 1 300 ₸, теперь **1 500 ₸**; в магазине было 1 400 ₸, стало 1 600 ₸.";
+  assertEquals(validateAnswer({ answer: answer2, toolData: [getProductResult], toolCalled: true }), {});
+});
+
 Deno.test("collectKnown: цены-строки из numeric и вложенные объекты", () => {
   const k = collectKnown([{ price_site: "1500.00", nested: [{ price_store: 2000 }] }]);
   assertEquals(k.prices.sort(), [1500, 2000]);
