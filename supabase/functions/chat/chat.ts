@@ -15,14 +15,8 @@ import { type ChatMessage, embed, streamChat, type Usage } from "./openai.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "./ratelimit.ts";
 import type { SSEWriter } from "./sse.ts";
-import {
-  compactOutcome,
-  executeTool,
-  type ProductCard,
-  TOOL_DEFS,
-  TOOL_LABELS,
-  type ToolOutcome,
-} from "./tools.ts";
+import { compactOutcome, executeTool, type ProductCard, TOOL_DEFS, TOOL_LABELS, type ToolOutcome } from "./tools.ts";
+import { collectKnownUrls, collectTurnActions, type UiAction } from "./ui_actions.ts";
 import { pickMentionedProducts, validateAnswer } from "./validate.ts";
 
 export interface ChatRequest {
@@ -37,12 +31,10 @@ export interface RequestMeta {
   userAgent: string | null;
 }
 
-export const ERROR_MESSAGE =
-  `Извините, сейчас не получается ответить — произошла техническая ошибка. ` +
+export const ERROR_MESSAGE = `Извините, сейчас не получается ответить — произошла техническая ошибка. ` +
   `Попробуйте повторить вопрос чуть позже или позвоните нам: ${FALLBACK_PHONE} (Алматы).`;
 
-const EMPTY_ANSWER =
-  `Извините, не удалось сформировать ответ. Попробуйте переформулировать вопрос ` +
+const EMPTY_ANSWER = `Извините, не удалось сформировать ответ. Попробуйте переформулировать вопрос ` +
   `или позвоните нам: ${FALLBACK_PHONE}.`;
 
 function historyToMessages(rows: HistoryRow[]): ChatMessage[] {
@@ -123,7 +115,9 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       }
       return p;
     };
-    const toolCtx = { db, sessionId, embed: embedQuery };
+    // url ekt.kz, известные navigate_to: из истории сразу, из этого хода — по мере выполнения раундов.
+    const knownUrls = collectKnownUrls(prior.data);
+    const toolCtx = { db, sessionId, embed: embedQuery, knownUrls };
 
     for (let round = 0; round < LIMITS.maxToolRounds; round++) {
       const lastRound = round === LIMITS.maxToolRounds - 1;
@@ -171,6 +165,8 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
         outcomes.push(results[i]);
         messages.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify(results[i].result) });
       });
+      // Url из результатов этого раунда становятся известны для navigate_to в следующих раундах хода.
+      for (const u of collectKnownUrls(results.map((r) => r.result))) knownUrls.add(u);
     }
 
     if (!answer.trim()) {
@@ -212,6 +208,15 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       });
     }
 
+    // UI-действия (navigate/highlight/click/fill/filter/suggest) хода: собраны из успешных вызовов
+    // инструментов, сжаты по лимитам (1 navigate/click/fill/filter/suggest, ≤3 highlight) и отправлены
+    // после текста и карточек товаров, перед `done`.
+    const uiActions: UiAction[] = collectTurnActions(
+      outcomes.map((o) => o.uiAction).filter((a): a is UiAction => !!a),
+    );
+    for (const action of uiActions) w.send("action", action);
+    if (uiActions.length) flags.actions = uiActions;
+
     const messageId = await insertMessage(db, {
       session_id: sessionId,
       role: "assistant",
@@ -224,7 +229,10 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       latency_ms: Date.now() - started,
       flags,
     });
-    await touchSession(db, sessionId, session.message_count + 2, { pageUrl: req.page_url ?? null, city: req.city ?? null });
+    await touchSession(db, sessionId, session.message_count + 2, {
+      pageUrl: req.page_url ?? null,
+      city: req.city ?? null,
+    });
     w.send("done", { message_id: messageId });
   } catch (e) {
     const msg = e instanceof Error

@@ -3,13 +3,38 @@
 import { LIMITS } from "./config.ts";
 import type { Db } from "./db.ts";
 import type { ToolDef } from "./openai.ts";
+import {
+  CLICK_TARGETS,
+  FORM_FIELDS,
+  FORMS,
+  normalizeKzPhone,
+  TARGETS,
+  type UiAction,
+  validateClick,
+  validateFill,
+  validateFilter,
+  validateHighlight,
+  validateNavigate,
+  validateSuggest,
+} from "./ui_actions.ts";
+
+export { normalizeKzPhone };
 
 // ---------------------------------------------------------------------------
 // Схемы
 // ---------------------------------------------------------------------------
 
 const KNOWLEDGE_KINDS = [
-  "faq", "howto", "payment", "return", "contacts", "about", "production", "article", "tech", "news",
+  "faq",
+  "howto",
+  "payment",
+  "return",
+  "contacts",
+  "about",
+  "production",
+  "article",
+  "tech",
+  "news",
 ] as const;
 
 export const TOOL_DEFS: ToolDef[] = [
@@ -45,7 +70,7 @@ export const TOOL_DEFS: ToolDef[] = [
           attrs: {
             type: "object",
             description:
-              "Фильтр по характеристикам: {\"Название характеристики\": \"значение\"}, например {\"Тип цоколя\": \"E27\", \"Мощность\": \"10\"}.",
+              'Фильтр по характеристикам: {"Название характеристики": "значение"}, например {"Тип цоколя": "E27", "Мощность": "10"}.',
             additionalProperties: { type: "string" },
           },
           limit: {
@@ -81,8 +106,7 @@ export const TOOL_DEFS: ToolDef[] = [
     type: "function",
     function: {
       name: "category_facets",
-      description:
-        "Какие характеристики и их самые частые значения встречаются у товаров категории. " +
+      description: "Какие характеристики и их самые частые значения встречаются у товаров категории. " +
         "Используй перед подбором с фильтрами, чтобы узнать точные названия характеристик для attrs в search_products.",
       parameters: {
         type: "object",
@@ -98,13 +122,15 @@ export const TOOL_DEFS: ToolDef[] = [
     type: "function",
     function: {
       name: "list_categories",
-      description:
-        "Дерево каталога ekt.kz: без parent_url — корневые разделы, с parent_url — подкатегории раздела " +
+      description: "Дерево каталога ekt.kz: без parent_url — корневые разделы, с parent_url — подкатегории раздела " +
         "(url, название, число товаров, есть ли вложенные).",
       parameters: {
         type: "object",
         properties: {
-          parent_url: { type: "string", description: "URL родительской категории из предыдущего ответа list_categories." },
+          parent_url: {
+            type: "string",
+            description: "URL родительской категории из предыдущего ответа list_categories.",
+          },
         },
         additionalProperties: false,
       },
@@ -114,8 +140,7 @@ export const TOOL_DEFS: ToolDef[] = [
     type: "function",
     function: {
       name: "search_knowledge",
-      description:
-        "Поиск по страницам сайта ekt.kz: FAQ, как оформить заказ, оплата, доставка, возврат, контакты, " +
+      description: "Поиск по страницам сайта ekt.kz: FAQ, как оформить заказ, оплата, доставка, возврат, контакты, " +
         "о компании, производство и собственные марки, статьи, техническая информация, новости. " +
         "Возвращает фрагменты текста с url и заголовком страницы.",
       parameters: {
@@ -140,8 +165,7 @@ export const TOOL_DEFS: ToolDef[] = [
     type: "function",
     function: {
       name: "get_branches",
-      description:
-        "Филиалы ГК «Электрокомплект» (9 городов Казахстана): адрес, телефоны, e-mail, график работы. " +
+      description: "Филиалы ГК «Электрокомплект» (9 городов Казахстана): адрес, телефоны, e-mail, график работы. " +
         "Без city — все филиалы.",
       parameters: {
         type: "object",
@@ -163,7 +187,10 @@ export const TOOL_DEFS: ToolDef[] = [
         type: "object",
         properties: {
           name: { type: "string", description: "Имя клиента." },
-          phone: { type: "string", description: "Телефон клиента в формате Казахстана (+7XXXXXXXXXX или 8XXXXXXXXXX)." },
+          phone: {
+            type: "string",
+            description: "Телефон клиента в формате Казахстана (+7XXXXXXXXXX или 8XXXXXXXXXX).",
+          },
           email: { type: "string", description: "E-mail клиента, если сообщил." },
           city: { type: "string", description: "Город клиента." },
           request: {
@@ -181,6 +208,157 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "navigate_to",
+      description:
+        "Переводит браузер клиента на другую страницу ekt.kz в этом же окне. Используй, когда клиент хочет " +
+        "посмотреть или купить конкретный товар (веди на его карточку) или когда нужно показать страницу " +
+        "возврата, оплаты, каталога или контактов. Разрешены только: (a) url, который уже встречался в " +
+        "результатах инструментов этого диалога (карточка товара из search_products/get_product, страница базы " +
+        "знаний из search_knowledge), или (b) служебные страницы: /return/, /payments/, /about/howto/, " +
+        "/about/contacts/, /about/faq/, /catalog/svetilniki_lampy/lampy/, /. Никогда не придумывай и не изменяй " +
+        "url — используй его ровно как в результатах инструментов, без query-параметров. Перед вызовом одной " +
+        "фразой скажи клиенту, что делаешь (например «Открываю карточку товара…»). Не вызывай, если клиент уже " +
+        "на этой странице или просто задаёт общий вопрос без намерения куда-то перейти. Не больше одного вызова " +
+        "за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "Точный url страницы ekt.kz из результатов инструментов или служебный путь.",
+          },
+          label: {
+            type: "string",
+            description: "Короткая фраза для клиента о том, что открывается, например «Открываю карточку товара».",
+          },
+        },
+        required: ["url", "label"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "highlight",
+      description:
+        "Подсвечивает на текущей странице сайта элемент, о котором идёт речь (прокрутка, рамка и подсказка). " +
+        "Используй вместе с navigate_to (подсветка сработает после перехода) или отдельно, если клиент уже на " +
+        "нужной странице. Не больше 3 вызовов за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Что подсветить.", enum: [...TARGETS] },
+          note: { type: "string", description: "Короткая подсказка клиенту, например «Вот цена на сайте»." },
+        },
+        required: ["target", "note"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "click_element",
+      description: "Нажимает элемент на текущей странице сайта (например «Купить» или кнопку поиска). Виджет покажет " +
+        "предупреждение с кнопкой «Отмена» на 2 секунды, подсветит элемент и нажмёт его. Вызывай ТОЛЬКО после " +
+        "того, как клиент явно согласился («да, добавь», «нажми купить» и т. п.), и после того, как ты " +
+        "объяснил, что сделаешь. Не оформляет и не подтверждает заказ — только действие в браузере клиента; " +
+        "оформление корзины и заказа — на сайте. Не больше одного вызова за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Что нажать.", enum: [...CLICK_TARGETS] },
+          label: { type: "string", description: "Короткая фраза клиенту, например «Добавляю в корзину»." },
+        },
+        required: ["target", "label"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fill_form",
+      description:
+        "Заполняет поля формы на текущей странице сайта значениями из диалога. Форму НЕ отправляет — нажимает и " +
+        "отправляет клиент сам. Вызывай ТОЛЬКО после того, как собрал у клиента нужные данные и он согласился " +
+        "перейти к оформлению. Поля формы return_form: name, phone, order_number, purchase_date, product, " +
+        "reason. Поля lead_form: name, phone, city, comment. Поля search: q. Указывай только реальные данные, " +
+        "которые сообщил клиент; телефон — только если клиент сам его написал. Не больше одного вызова за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          form: { type: "string", description: "Целевая форма.", enum: [...FORMS] },
+          fields: {
+            type: "object",
+            description: `Значения полей формы. Допустимые ключи: ${
+              FORMS.map((f) => `${f} — ${FORM_FIELDS[f].join(", ")}`).join("; ")
+            }.`,
+            additionalProperties: { type: "string" },
+          },
+          label: {
+            type: "string",
+            description: "Короткая фраза клиенту, например «Заполняю заявление на возврат».",
+          },
+        },
+        required: ["form", "fields", "label"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_filters",
+      description:
+        "Применяет фильтры в каталоге товаров на странице /catalog/svetilniki_lampy/lampy/ — работает, только " +
+        "если клиент сейчас там (иначе сначала navigate_to). Ключи filters — точные названия характеристик " +
+        "(узнать можно через category_facets), значения — как в характеристиках товара. Не больше одного " +
+        "вызова за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          filters: {
+            type: "object",
+            description: '{"Название характеристики": "значение"}, например {"Тип цоколя": "E27"}.',
+            additionalProperties: { type: "string" },
+          },
+          label: { type: "string", description: "Короткая фраза клиенту, например «Применяю фильтры»." },
+        },
+        required: ["filters", "label"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "suggest_replies",
+      description:
+        "Предлагает клиенту 1–4 коротких варианта следующего сообщения (кнопки под твоим ответом); клик по " +
+        "кнопке отправляет её текст как сообщение клиента. Используй проактивно в конце ответа, чтобы " +
+        "предложить следующий шаг сценария (например «Открыть карточку», «Добавить в корзину», «Оформить " +
+        "возврат»). Не больше одного вызова за ответ.",
+      parameters: {
+        type: "object",
+        properties: {
+          options: {
+            type: "array",
+            description: "1–4 коротких варианта ответа (до 40 символов каждый).",
+            items: { type: "string" },
+            minItems: 1,
+            maxItems: 4,
+          },
+        },
+        required: ["options"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -191,6 +369,12 @@ export const TOOL_LABELS: Record<string, string> = {
   search_knowledge: "Ищу информацию на сайте…",
   get_branches: "Смотрю контакты филиалов…",
   create_lead: "Оформляю заявку…",
+  navigate_to: "Перехожу на страницу…",
+  highlight: "Показываю на странице…",
+  click_element: "Нажимаю на сайте…",
+  fill_form: "Заполняю форму…",
+  apply_filters: "Применяю фильтры…",
+  suggest_replies: "Предлагаю варианты…",
 };
 
 // ---------------------------------------------------------------------------
@@ -202,6 +386,13 @@ export interface ToolContext {
   sessionId: string;
   /** Эмбеддинг запроса; null — если недоступен (поиск тогда без векторной части). */
   embed: (text: string) => Promise<number[] | null>;
+  /**
+   * Известные url ekt.kz этого диалога (из результатов инструментов текущего хода и истории) —
+   * используется navigate_to для проверки допустимости перехода. Мутируется вызывающим кодом
+   * между раундами цикла инструментов (chat.ts), чтобы позже вызванный navigate_to видел url,
+   * найденные раньше в этом же ходе.
+   */
+  knownUrls: Set<string>;
 }
 
 /** Карточка товара для события `products` виджета. */
@@ -223,6 +414,8 @@ export interface ToolOutcome {
   result: Record<string, unknown>;
   /** Товары, найденные этим вызовом. */
   cards: ProductCard[];
+  /** UI-действие (navigate/highlight/click/fill/filter/suggest), если инструмент его успешно провалидировал. */
+  uiAction?: UiAction;
   error?: string;
 }
 
@@ -286,17 +479,6 @@ function toCard(r: Record<string, unknown>): ProductCard {
     price_store: num(r.price_store),
     image_url: (r.image_url as string) ?? null,
   };
-}
-
-/** Нормализует телефон Казахстана в +7XXXXXXXXXX; null — если формат неверный. */
-export function normalizeKzPhone(raw: string): string | null {
-  const trimmed = raw.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  let national: string | null = null;
-  if (digits.length === 11 && (digits[0] === "7" || digits[0] === "8")) national = digits.slice(1);
-  else if (digits.length === 10 && !trimmed.startsWith("+")) national = digits;
-  if (!national || national[0] !== "7") return null;
-  return "+7" + national;
 }
 
 // ---------------------------------------------------------------------------
@@ -417,15 +599,17 @@ const searchProducts: Executor = async (args, ctx) => {
     count: items.length,
     items,
     data_updated_at: meta.dataUpdatedAt,
-    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
+    prices_note:
+      "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
   };
   if (relaxed.length) {
     result.relaxed = true;
-    result.relaxed_note =
-      `С исходными фильтрами ничего не нашлось; поиск повторён без: ${relaxed.join(", ")}. ` +
+    result.relaxed_note = `С исходными фильтрами ничего не нашлось; поиск повторён без: ${relaxed.join(", ")}. ` +
       "Проверь, что найденные товары действительно подходят, и скажи клиенту об этом.";
   }
-  if (!items.length) result.note = "Ничего не найдено. Не выдумывай товары; предложи уточнить запрос или оставить заявку.";
+  if (!items.length) {
+    result.note = "Ничего не найдено. Не выдумывай товары; предложи уточнить запрос или оставить заявку.";
+  }
   return { result, cards: rows.map(toCard) };
 };
 
@@ -502,7 +686,8 @@ const getProduct: Executor = async (args, ctx) => {
     found: true,
     item,
     data_updated_at: isoDate(row.scraped_at),
-    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
+    prices_note:
+      "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
   };
   if (!row.is_active) result.note = "Товар снят с продажи / отсутствует на сайте при последнем обновлении.";
   return { result, cards: row.is_active ? [toCard(row)] : [] };
@@ -570,9 +755,11 @@ const searchKnowledge: Executor = async (args, ctx) => {
     content: truncate(r.content as string, 1200),
   }));
   return {
-    result: items.length
-      ? { count: items.length, items }
-      : { count: 0, items: [], note: "Ничего не найдено на страницах сайта. Не выдумывай; предложи связаться с филиалом." },
+    result: items.length ? { count: items.length, items } : {
+      count: 0,
+      items: [],
+      note: "Ничего не найдено на страницах сайта. Не выдумывай; предложи связаться с филиалом.",
+    },
     cards: [],
   };
 };
@@ -692,6 +879,82 @@ const createLead: Executor = async (args, ctx) => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// UI-действия (navigate/highlight/click/fill/filter/suggest) — валидация в ui_actions.ts,
+// здесь только разбор аргументов и упаковка в ToolOutcome.uiAction.
+// ---------------------------------------------------------------------------
+
+const navigateTo: Executor = (args, ctx) => {
+  const url = str(args.url, 500) ?? "";
+  const label = str(args.label, 200) ?? "";
+  const v = validateNavigate(url, ctx.knownUrls);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  const l = label.slice(0, 120);
+  if (!l) return Promise.resolve({ result: { ok: false, error: "Укажи label." }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Переход будет выполнен после ответа, в том же окне." },
+    cards: [],
+    uiAction: { type: "navigate", url: v.url!, label: l },
+  });
+};
+
+const highlightEl: Executor = (args) => {
+  const target = str(args.target, 60) ?? "";
+  const note = str(args.note, 200) ?? "";
+  const v = validateHighlight(target, note);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Подсветка будет показана после ответа." },
+    cards: [],
+    uiAction: v.action,
+  });
+};
+
+const clickElement: Executor = (args) => {
+  const target = str(args.target, 60) ?? "";
+  const label = str(args.label, 200) ?? "";
+  const v = validateClick(target, label);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Нажатие будет выполнено после ответа." },
+    cards: [],
+    uiAction: v.action,
+  });
+};
+
+const fillForm: Executor = (args) => {
+  const form = str(args.form, 60) ?? "";
+  const label = str(args.label, 200) ?? "";
+  const v = validateFill(form, args.fields, label);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Форма будет заполнена после ответа; отправляет её клиент сам." },
+    cards: [],
+    uiAction: v.action,
+  });
+};
+
+const applyFilters: Executor = (args) => {
+  const label = str(args.label, 200) ?? "";
+  const v = validateFilter(args.filters, label);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Фильтры будут применены после ответа (работает только в каталоге)." },
+    cards: [],
+    uiAction: v.action,
+  });
+};
+
+const suggestReplies: Executor = (args) => {
+  const v = validateSuggest(args.options);
+  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  return Promise.resolve({
+    result: { ok: true, note: "Варианты будут показаны клиенту после ответа." },
+    cards: [],
+    uiAction: v.action,
+  });
+};
+
 const EXECUTORS: Record<string, Executor> = {
   search_products: searchProducts,
   get_product: getProduct,
@@ -700,6 +963,12 @@ const EXECUTORS: Record<string, Executor> = {
   search_knowledge: searchKnowledge,
   get_branches: getBranches,
   create_lead: createLead,
+  navigate_to: navigateTo,
+  highlight: highlightEl,
+  click_element: clickElement,
+  fill_form: fillForm,
+  apply_filters: applyFilters,
+  suggest_replies: suggestReplies,
 };
 
 export async function executeTool(name: string, rawArgs: string, ctx: ToolContext): Promise<ToolOutcome> {
@@ -711,7 +980,9 @@ export async function executeTool(name: string, rawArgs: string, ctx: ToolContex
     return { name, args: {}, result: { error: "Некорректный JSON аргументов." }, cards: [], error: "bad_args" };
   }
   const exec = EXECUTORS[name];
-  if (!exec) return { name, args, result: { error: `Неизвестный инструмент ${name}.` }, cards: [], error: "unknown_tool" };
+  if (!exec) {
+    return { name, args, result: { error: `Неизвестный инструмент ${name}.` }, cards: [], error: "unknown_tool" };
+  }
   try {
     const out = await exec(args, ctx);
     return { name, args, ...out };
@@ -734,11 +1005,14 @@ export function compactOutcome(o: ToolOutcome): Record<string, unknown> {
   const out: Record<string, unknown> = { name: o.name, args: o.args };
   if (o.error) out.error = o.error;
   if (o.cards.length) out.products = o.cards;
+  if (o.uiAction) out.action = o.uiAction;
   const urls = new Set<string>();
   const collect = (list: unknown) => {
     if (Array.isArray(list)) {
-      for (const x of list) if (x && typeof x === "object" && typeof (x as { url?: unknown }).url === "string") {
-        urls.add((x as { url: string }).url);
+      for (const x of list) {
+        if (x && typeof x === "object" && typeof (x as { url?: unknown }).url === "string") {
+          urls.add((x as { url: string }).url);
+        }
       }
     }
   };

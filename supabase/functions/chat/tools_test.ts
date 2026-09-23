@@ -70,9 +70,12 @@ Deno.test("compactOutcome: товары и ключевые поля", () => {
   assertEquals(c.urls, undefined);
 });
 
-Deno.test("TOOL_DEFS: все 7 инструментов с уникальными именами", () => {
+Deno.test("TOOL_DEFS: все 13 инструментов с уникальными именами", () => {
   const names = TOOL_DEFS.map((t) => t.function.name);
-  assertEquals(new Set(names).size, 7);
+  assertEquals(new Set(names).size, 13);
+  for (const n of ["navigate_to", "highlight", "click_element", "fill_form", "apply_filters", "suggest_replies"]) {
+    assertEquals(names.includes(n), true);
+  }
 });
 
 Deno.test("evaluateLimits", () => {
