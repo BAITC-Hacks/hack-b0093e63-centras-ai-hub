@@ -10,6 +10,7 @@ import { load } from 'cheerio';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HIGHLIGHT_MS,
+  NAV_MS,
   PLATE_MS,
   clearHighlights,
   fillForm,
@@ -480,16 +481,13 @@ describe('buying is bound to the product card', () => {
   });
 });
 
-describe('«open the form» + «fill the form» in one reply (real backend sends both)', () => {
-  it('skips the extra click plate and opens #zayavka already filled', async () => {
+describe('act immediately: no plate for fill / highlight / search, 1 s for navigate', () => {
+  it('click+fill of #zayavka: no plate, the modal opens and is filled in one pass', async () => {
     loadProductPage();
-    let atOpen: Record<string, string> = {};
-    const show = vi.fn(() => {
-      const f = document.querySelector<HTMLFormElement>('.form_zayavka-js')!;
-      atOpen = { name: (f.elements.namedItem('name') as HTMLInputElement).value, question: (f.elements.namedItem('question') as HTMLTextAreaElement).value };
-      document.getElementById('zayavka')!.classList.add('show');
-    });
+    const show = vi.fn(() => document.getElementById('zayavka')!.classList.add('show'));
     w.bootstrap = { Modal: { getOrCreateInstance: () => ({ show }) } };
+    const inputs: string[] = [];
+    document.querySelector('.form_zayavka-js')!.addEventListener('input', (e) => inputs.push((e.target as HTMLInputElement).name));
     const started = Date.now();
     await runActions(
       [
@@ -498,10 +496,66 @@ describe('«open the form» + «fill the form» in one reply (real backend sends
       ],
       { t },
     );
-    expect(Date.now() - started).toBeLessThan(PLATE_MS); // no 2-second plate for the redundant click
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(plateEl()).toBeFalsy();
     expect(show).toHaveBeenCalledTimes(1);
-    expect(atOpen).toEqual({ name: 'Тест', question: 'Возврат: заказ №12345' });
+    const f = document.querySelector<HTMLFormElement>('.form_zayavka-js')!;
+    expect((f.elements.namedItem('name') as HTMLInputElement).value).toBe('Тест');
+    expect((f.elements.namedItem('question') as HTMLTextAreaElement).value).toBe('Возврат: заказ №12345');
+    expect(inputs.sort()).toEqual(['name', 'phone', 'question']); // one pass: each field once
     expect(rings()).toHaveLength(1);
+  });
+
+  it('a field that already holds the value is left alone (no events)', () => {
+    document.body.innerHTML = '<form><input name="name" value="Тест"><input name="phone" class="phone-mask" value="+7 (701) 000-00-00"></form>';
+    const events = vi.fn();
+    document.querySelector('form')!.addEventListener('input', events);
+    expect(fillForm(document.querySelector('form')!, { name: 'Тест', phone: '+7 701 000 00 00' })).toBe(2);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('fill search + search_submit: typed and submitted at once, no plate', async () => {
+    loadProductPage();
+    const form = document.querySelector<HTMLFormElement>('#search form')!;
+    const submitted = vi.fn((e: Event) => e.preventDefault());
+    form.addEventListener('submit', submitted);
+    const started = Date.now();
+    await runActions([{ type: 'fill', form: 'search', fields: { q: 'лампа E27 4000K' } }, { type: 'click', target: 'search_submit' }], { t });
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(submitted).toHaveBeenCalledTimes(1);
+    expect(plateEl()).toBeFalsy();
+  });
+
+  it('highlight: at once, no plate', async () => {
+    loadProductPage();
+    await runActions([{ type: 'highlight', target: 'price', note: 'Цена' }], { t });
+    expect(rings()).toHaveLength(1);
+    expect(plateEl()).toBeFalsy();
+  });
+
+  it('navigate waits 1 s (not 2) with «Отмена»', async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    const run = runActions([{ type: 'navigate', url: 'https://ekt.kz/payments/', label: 'Оплата' }], { t, assign });
+    await vi.advanceTimersByTimeAsync(NAV_MS - 50);
+    expect(assign).not.toHaveBeenCalled();
+    expect(plateEl()?.querySelector('button')?.textContent).toBe('Отмена');
+    await vi.advanceTimersByTimeAsync(100);
+    await run;
+    expect(assign).toHaveBeenCalledWith('https://ekt.kz/payments/');
+  });
+
+  it('buying still waits 2 s with «Отмена»', async () => {
+    vi.useFakeTimers();
+    loadProductPage();
+    const card = vi.fn();
+    document.querySelector('.detail_info .btn-cart')!.addEventListener('click', card);
+    const run = runActions([{ type: 'click', target: 'buy_button' }], { t });
+    await vi.advanceTimersByTimeAsync(PLATE_MS - 100);
+    expect(card).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    await run;
+    expect(card).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,13 +1,13 @@
 /**
  * "Hands" of the consultant on the real ekt.kz: UI actions streamed by the backend as SSE `action` events.
  *
- *   navigate  → plate «Перехожу: … · Отмена» for 2 s, then location.assign() in the same tab;
+ *   navigate  → plate «Перехожу: … · Отмена» for 1 s, then location.assign() in the same tab;
  *               the other actions of the reply are queued in sessionStorage and run on the new page.
  *               Off ekt.kz (landing page, other hosts) the plate offers a link to open ekt.kz instead.
  *   highlight → scroll to the element, pulsing ring + note (overlay outside the widget, pointer-events:none).
- *   click     → plate «<label> · Отмена» for 2 s, ring, then the click (.btn-cart → add2basket of the site,
+ *   click     → ring, then the click; only buying (.btn-cart → add2basket, «Купить в 1 клик») waits 2 s with «Отмена»;
  *               search_submit → form.requestSubmit(), lead_form / buy_one_click → open the site's modal).
- *   fill      → open the modal form if needed, set fields by name (input/change/keyup), ring. Never submits.
+ *   fill      → at once: open the modal form if needed, one pass over the fields (input/change/keyup), ring. Never submits.
  *   suggest   → quick replies (rendered by the widget, not here).
  *
  * Targets are ekt.kz classes (see SELECTORS); a page may pin an element with data-ekt-target="<target>".
@@ -59,7 +59,10 @@ const own = (o: object, key: unknown): key is string => typeof key == 'string' &
 const known = (key: unknown): key is string => own(SELECTORS, key);
 const LOCAL = /^(localhost|127\.0\.0\.1)$/;
 
+/** «… · Отмена» before a click that changes the real basket (buy_button, buy_one_click). */
 export const PLATE_MS = 2000;
+/** «Перехожу: … · Отмена» before a same-tab navigation. */
+export const NAV_MS = 1000;
 export const HIGHLIGHT_MS = 6000;
 
 /* ── parsing ─────────────────────────────────────────────── */
@@ -162,7 +165,7 @@ function waitFor<T>(fn: () => T | null, ms: number): Promise<T | null> {
     const tick = () => {
       const v = fn();
       if (v || Date.now() >= end) done(v);
-      else setTimeout(tick, 120);
+      else setTimeout(tick, 100);
     };
     tick();
   });
@@ -395,7 +398,10 @@ export function setFieldValue(field: HTMLElement, value: string): boolean {
   if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field.disabled || field.readOnly) return false;
   // Never touch secrets, files, hidden/service fields (sessid, form_id, utm_*) or buttons.
   if (/^(sessid|form_id|utm_)/.test(field.name) || /^(checkbox|radio|file|hidden|password|submit|button|image|reset)$/.test(field.type)) return false;
-  field.value = (field.type == 'tel' || field.classList.contains('phone-mask') ? phoneDigits(value) : value).slice(0, 200);
+  const phone = field.type == 'tel' || field.classList.contains('phone-mask');
+  const v = (phone ? phoneDigits(value) : value).slice(0, 200);
+  if (phone ? field.value.replace(/\D/g, '') == v : field.value == v) return true; // already there
+  field.value = v;
   for (const type of ['input', 'change', 'keyup']) field.dispatchEvent(new Event(type, { bubbles: true }));
   return true;
 }
@@ -447,22 +453,24 @@ async function runOne(a: UIAction, env: ActionEnv, wait: number, scroll: boolean
     if ((product && !target) || (!modal && !target) || target?.matches('[type="submit"]')) return;
     if (a.target == 'search_submit' && !form?.matches('#search form, form[action^="/catalog/"]')) return;
     if (target) highlightElement(target, undefined, scroll);
-    const title = product ? (document.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '';
-    const text = a.label || env.t.going;
-    if (!(await plate(title ? `${text}: ${title}` : text, env.t)) || my != running) return;
+    // Only buying changes something real (the ekt.kz basket): that waits 2 s with «Отмена»; the rest acts at once.
+    if (product) {
+      const title = (document.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+      const text = a.label || env.t.going;
+      if (!(await plate(title ? `${text}: ${title}` : text, env.t)) || my != running) return;
+    }
     if (modal) await openModal(modal, target);
     else if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
     else target!.click();
   } else if (a.type == 'fill') {
+    // Right away, no plate (nothing is submitted): open the modal, then one pass over the fields.
     const modal = MODALS[a.form];
-    const target = await locate(a.form, modal ? 1500 : wait);
     if (modal) {
       const trigger = modalTrigger(a.form);
       if (PRODUCT_CONTROLS[a.form] && !trigger) return; // «Купить в 1 клик» only on a product page
-      // Fill first, so the modal opens already filled; fill again after opening in case the site resets it.
-      if (target) fillForm(target, a.fields);
       await openModal(modal, trigger);
     }
+    const target = await locate(a.form, modal ? 1500 : wait);
     if (my == running && target && fillForm(target, a.fields)) highlightElement(target.closest('form') || target, a.label, scroll && !modal);
   }
 }
@@ -485,7 +493,7 @@ export async function runActions(actions: UIAction[], env: ActionEnv, deferred =
     if (pageKey(nav.url) != pageKey(location.href)) {
       env.onVisual?.();
       savePending(pageKey(nav.url), list);
-      if (!(await plate(`${env.t.going}: ${label}`, env.t)) || my != running) {
+      if (!(await plate(`${env.t.going}: ${label}`, env.t, NAV_MS)) || my != running) {
         if (my == running) clearPending();
         return;
       }

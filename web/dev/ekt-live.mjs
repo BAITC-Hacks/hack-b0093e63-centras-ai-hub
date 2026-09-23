@@ -152,7 +152,7 @@ step('catalog: search «лампа E27 4000K» (fill search + click search_submi
   await shot('ekt-01-catalog-with-widget');
   const n = await ask('Подбери лампу E27 4000K');
   await waitFor(answered(n), 30000, 'reply');
-  await waitFor(inOverlay('.plate'), 8000, 'search plate');
+  await waitFor(`document.querySelector('#search input[name="q"]')?.value || location.search.includes('q=')`, 8000, 'search typed');
   await sleep(500);
   await shot('ekt-02-search-filled');
   await waitFor(`location.search.includes('q=')`, 20000, 'search results page');
