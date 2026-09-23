@@ -102,6 +102,10 @@ ekt.kz ──► scraper (Node/TS) ──► data/*.jsonl ──► ingest ─�
 
 Миграция: [`supabase/migrations/20260923120000_init.sql`](supabase/migrations/20260923120000_init.sql).
 
+Все объекты консультанта лежат в **отдельной схеме `ekt`**: проект Supabase может быть общим с другими
+приложениями, и схема гарантирует, что таблицы и права не пересекаются. Схема `ekt` добавлена в
+Data API → Exposed schemas; клиенты создаются с `db: { schema: "ekt" }`.
+
 | Таблица | Что хранит |
 |---|---|
 | `categories` | дерево каталога: `url`, `name`, `parent_url`, `path[]`, `depth`, `product_count` |
@@ -207,7 +211,7 @@ npm run ingest -- --no-embed  # без эмбеддингов
 `POST /functions/v1/chat/feedback` — `{ session_id, message_id, rating: 1 | -1, comment? }`.
 `GET /functions/v1/chat/health` — проверка доступности.
 
-Ограничения: сообщение ≤ 2000 символов; 20 сообщений/мин на сессию, 60/мин на IP;
+Ограничения: сообщение ≤ 2000 символов в UTF-8 (иначе 400); 20 сообщений/мин на сессию, 60/мин на IP;
 до 5 раундов инструментов на ответ; CORS — только домены из `ALLOWED_ORIGINS`.
 
 ## Виджет и встраивание на сайт
@@ -223,7 +227,7 @@ npm run ingest -- --no-embed  # без эмбеддингов
 ```
 
 Атрибуты: `data-api` (обязательно), `data-title`, `data-color`, `data-position` (`right`/`left`),
-`data-open` (`true` — открыть сразу), `data-lang` (`ru`/`kk`/`en`).
+`data-open` (`true` — открыть сразу), `data-lang` (`ru`/`kk`/`en`), `data-city` (город клиента → в API).
 JS API: `window.EKTConsultant.open()`, `.close()`, `.ask("текст")`.
 
 Виджет работает в Shadow DOM (стили сайта и виджета не пересекаются), сохраняет диалог при
@@ -242,7 +246,8 @@ npm test                          # тесты парсеров, виджета
 # 1. База данных
 npx supabase login                # или SUPABASE_ACCESS_TOKEN в окружении
 npx supabase link --project-ref <project-ref>
-npx supabase db push              # применить миграции
+npx supabase db push              # применить миграции (создаёт схему ekt)
+# Data API → Settings → Exposed schemas: добавить ekt (или PATCH /v1/projects/<ref>/postgrest)
 
 # 2. Данные
 npm run scrape
@@ -260,8 +265,9 @@ npm run dev:web                   # http://localhost:5173
 
 ## Деплой в продакшен
 
-1. **Supabase**: `db push` → `secrets set` → `functions deploy chat --no-verify-jwt`
-   (JWT не требуется — виджет публичный; защита — CORS и rate-limit).
+1. **Supabase**: `db push` → добавить схему `ekt` в Exposed schemas → `secrets set` →
+   `functions deploy chat --no-verify-jwt` (JWT не требуется — виджет публичный; защита — CORS и rate-limit).
+   Проверка: `GET /functions/v1/chat/health` → `{"ok":true,"db":true,"openai_key":true}`.
 2. **Данные**: первый полный `scrape` + `ingest` локально; далее — GitHub Actions
    [`refresh-data.yml`](.github/workflows/refresh-data.yml) ежедневно в 03:15 (Алматы).
    Секреты репозитория: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`.
@@ -283,27 +289,43 @@ npm run eval -- --only brand-iek
 
 Отчёт — `eval/report.json`; код выхода 1, если прошло меньше 80 %.
 
+> Сценарий `lead-flow-wholesale` создаёт настоящую заявку («Тест Eval», +77010000000) — после прогона
+> пометьте её: `update ekt.leads set status = 'spam' where phone = '+77010000000';`
+
 ## Эксплуатация
 
 Полезные запросы в Supabase Studio → SQL:
 
 ```sql
 -- новые заявки
-select * from leads where status = 'new' order by created_at desc;
+select * from ekt.leads where status = 'new' order by created_at desc;
 
 -- ответы с подозрением на выдумку (ссылки/цены не из базы)
-select session_id, content, flags from chat_messages
+select session_id, content, flags from ekt.chat_messages
 where role = 'assistant' and flags ?| array['unknown_urls','unmatched_prices'] order by created_at desc;
 
 -- дизлайки
-select m.content, f.comment from feedback f join chat_messages m on m.id = f.message_id
+select m.content, f.comment from ekt.feedback f join ekt.chat_messages m on m.id = f.message_id
 where f.rating = -1 order by f.created_at desc;
 
 -- последние обновления данных
-select * from scrape_runs order by started_at desc limit 5;
+select * from ekt.scrape_runs order by started_at desc limit 5;
 ```
 
 Сменить модель: `npx supabase secrets set OPENAI_MODEL=<модель>` — без передеплоя кода.
+
+Переменные Edge Function:
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `OPENAI_API_KEY` | — | ключ OpenAI (обязательно) |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | модель консультанта |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | эмбеддинги запросов (должна совпадать с ingest) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | прокси / совместимый API |
+| `OPENAI_MAX_COMPLETION_TOKENS` | `3000` | лимит длины ответа |
+| `ALLOWED_ORIGINS` | `*` | домены виджета через запятую |
+
+`SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` Supabase подставляет в функцию автоматически.
 
 ## Безопасность и приватность
 
