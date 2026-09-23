@@ -6,26 +6,31 @@ import { createClient } from '@supabase/supabase-js';
 import { sleep } from './http.js';
 import type { Branch, Category, Page, Product } from './parse/index.js';
 import {
-  type ProductRow,
+  type ExistingPrice,
+  type PriceChange,
   branchRow,
   categoryRow,
   chunkEmbedText,
+  detectPriceChanges,
   pageChunks,
   pageRow,
   productEmbedText,
   productRow,
+  toPriceNumber,
 } from './rows.js';
 
 dotenv.config({ path: ['.env.local', '.env'], quiet: true } as dotenv.DotenvConfigOptions);
 
-const DATA_DIR = path.resolve('data');
 const BATCH = 500;
 const EMBED_BATCH = 100;
 const DEACTIVATE_THRESHOLD = 0.9;
 
-const args = new Set(process.argv.slice(2));
-const DRY_RUN = args.has('--dry-run');
-const NO_EMBED = args.has('--no-embed');
+const rawArgs = process.argv.slice(2);
+const DRY_RUN = rawArgs.includes('--dry-run');
+const NO_EMBED = rawArgs.includes('--no-embed');
+const dirFlagIndex = rawArgs.indexOf('--dir');
+const DIR_ARG = dirFlagIndex !== -1 ? rawArgs[dirFlagIndex + 1] : undefined;
+const DATA_DIR = path.resolve(DIR_ARG || 'data');
 const EMBED_MODEL = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
 
 interface ScrapeReport {
@@ -150,6 +155,37 @@ async function upsertBatched(
 }
 
 // ---------------------------------------------------------------------------
+// Изменения цен: вывод в консоль и GITHUB_STEP_SUMMARY
+// ---------------------------------------------------------------------------
+
+const fmtPrice = (n: number | null) => (n === null ? '—' : String(n));
+
+function priceCell(oldV: number | null, newV: number | null): string {
+  return oldV === newV ? '—' : `${fmtPrice(oldV)} → ${fmtPrice(newV)}`;
+}
+
+function logPriceChanges(changes: PriceChange[]): void {
+  console.log(`[ingest] изменения цен: ${changes.length}`);
+  for (const c of changes) {
+    const parts: string[] = [];
+    if (c.price_site_old !== c.price_site_new) parts.push(`сайт ${fmtPrice(c.price_site_old)} → ${fmtPrice(c.price_site_new)}`);
+    if (c.price_store_old !== c.price_store_new) parts.push(`магазин ${fmtPrice(c.price_store_old)} → ${fmtPrice(c.price_store_new)}`);
+    console.log(`  ${c.name}: ${parts.join(', ')} ₸`);
+  }
+
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (!summaryFile) return;
+  const lines = ['', '### Изменения цен', ''];
+  if (changes.length) {
+    lines.push('| Товар | Цена сайта, ₸ | Цена магазина, ₸ |', '| --- | --- | --- |');
+    for (const c of changes) {
+      lines.push(`| [${c.name}](${c.url}) | ${priceCell(c.price_site_old, c.price_site_new)} | ${priceCell(c.price_store_old, c.price_store_new)} |`);
+    }
+  } else {
+    lines.push('Изменений цен нет.');
+  }
+  fs.appendFileSync(summaryFile, lines.join('\n') + '\n');
+}
 
 async function main() {
   const report = readJson<ScrapeReport>('scrape-report.json');
@@ -157,16 +193,18 @@ async function main() {
   const categories = dedupe(readJsonl<Category>('categories.jsonl'), (c) => c.url).sort((a, b) => a.depth - b.depth);
   const pages = dedupe(readJsonl<Page>('pages.jsonl'), (p) => p.url);
   const branches = readJson<Branch[]>('branches.json') ?? [];
-  if (!report) throw new Error('data/scrape-report.json не найден — сначала запустите npm run scrape');
-  if (!products.length && !pages.length) throw new Error('data/ пуст — нечего загружать');
+  if (!report) {
+    console.warn(`[ingest] ${path.join(DATA_DIR, 'scrape-report.json')} не найден — прогон считается неполным (без деактивации)`);
+  }
+  if (!products.length && !pages.length) throw new Error(`${DATA_DIR} пуст — нечего загружать (проверьте флаг --dir)`);
 
-  const scrapedAt = report.finished_at ?? new Date().toISOString();
+  const scrapedAt = report?.finished_at ?? new Date().toISOString();
   const catUrls = new Set(categories.map((c) => c.url));
   const categoryRows = categories.map((c) => categoryRow(c, catUrls));
   const productRows = products.map((p) => productRow(p, scrapedAt, catUrls));
   const pageRows = pages.map((p) => ({ row: pageRow(p, scrapedAt), chunks: pageChunks(p), title: p.title }));
-  const ratio = report.total_urls ? report.fetched / report.total_urls : 0;
-  const fullRun = !report.limit;
+  const ratio = report?.total_urls ? report.fetched / report.total_urls : 0;
+  const fullRun = report ? !report.limit : false;
   const canDeactivate = fullRun && ratio >= DEACTIVATE_THRESHOLD;
 
   const summary = {
@@ -202,11 +240,14 @@ async function main() {
   }
   const db = connect(url!, key!);
 
-  const run = await db.from('scrape_runs').insert({ status: 'running', stats: { scrape: report.counts } }).select('id').single();
+  const run = await db.from('scrape_runs').insert({ status: 'running', stats: { scrape: report?.counts ?? null } }).select('id').single();
   if (run.error) throw new Error(`scrape_runs: ${run.error.message}`);
   const runId = run.data.id as number;
   const errors: string[] = [];
-  const stats: Record<string, unknown> = { ...summary, scrape_report: { total_urls: report.total_urls, fetched: report.fetched, failed: report.failed.length } };
+  const stats: Record<string, unknown> = {
+    ...summary,
+    scrape_report: report ? { total_urls: report.total_urls, fetched: report.fetched, failed: report.failed.length } : null,
+  };
 
   try {
     // 1. Категории (родители раньше детей)
@@ -214,22 +255,75 @@ async function main() {
     console.log(`[ingest] категории: ${stats.categories_upserted}`);
 
     // 2. Товары
-    const existing = await selectAll<{ id: number; content_hash: string; embedded_hash: string | null; is_active: boolean }>(
-      db, 'products', 'id, content_hash, embedded_hash, is_active',
-    );
+    const existing = await selectAll<{
+      id: number;
+      content_hash: string;
+      embedded_hash: string | null;
+      is_active: boolean;
+      price_site: number | string | null;
+      price_store: number | string | null;
+      price_site_prev: number | string | null;
+      price_store_prev: number | string | null;
+      price_changed_at: string | null;
+    }>(db, 'products', 'id, content_hash, embedded_hash, is_active, price_site, price_store, price_site_prev, price_store_prev, price_changed_at');
     const existingById = new Map(existing.map((e) => [e.id, e]));
     stats.products_new = productRows.filter((r) => !existingById.has(r.id)).length;
     stats.products_changed = productRows.filter((r) => existingById.has(r.id) && existingById.get(r.id)!.content_hash !== r.content_hash).length;
-    stats.products_upserted = await upsertBatched(db, 'products', productRows, 'id', errors);
+
+    // 2a. Изменения цен относительно текущих значений в БД
+    const priceChanges: PriceChange[] = detectPriceChanges(
+      new Map<number, ExistingPrice>(existing.map((e) => [e.id, { price_site: e.price_site, price_store: e.price_store }])),
+      productRows,
+    );
+    const changedIds = new Set(priceChanges.map((c) => c.product_id));
+    const priceChangedAt = new Date().toISOString();
+    const productRowsForUpsert = productRows.map((r) => {
+      const prev = existingById.get(r.id);
+      if (!prev) return { ...r, price_site_prev: null, price_store_prev: null, price_changed_at: null };
+      if (changedIds.has(r.id)) {
+        return {
+          ...r,
+          price_site_prev: toPriceNumber(prev.price_site),
+          price_store_prev: toPriceNumber(prev.price_store),
+          price_changed_at: priceChangedAt,
+        };
+      }
+      // не изменилось — переносим текущие значения из БД, иначе bulk-upsert их обнулит
+      return {
+        ...r,
+        price_site_prev: toPriceNumber(prev.price_site_prev),
+        price_store_prev: toPriceNumber(prev.price_store_prev),
+        price_changed_at: prev.price_changed_at,
+      };
+    });
+
+    stats.products_upserted = await upsertBatched(db, 'products', productRowsForUpsert, 'id', errors);
     console.log(`[ingest] товары: ${stats.products_upserted} (новых ${stats.products_new}, изменённых ${stats.products_changed})`);
+
+    // 2b. История цен
+    logPriceChanges(priceChanges);
+    if (priceChanges.length) {
+      const { error } = await db.from('price_history').insert(
+        priceChanges.map((c) => ({
+          product_id: c.product_id,
+          run_id: runId,
+          price_site_old: c.price_site_old,
+          price_site_new: c.price_site_new,
+          price_store_old: c.price_store_old,
+          price_store_new: c.price_store_new,
+        })),
+      );
+      if (error) errors.push(`price_history insert: ${error.message}`);
+    }
+    stats.price_changes = { count: priceChanges.length, items: priceChanges.slice(0, 50) };
 
     // 3. Эмбеддинги товаров — только где embedded_hash ≠ content_hash
     if (!NO_EMBED) {
-      const need = productRows.filter((r) => existingById.get(r.id)?.embedded_hash !== r.content_hash);
+      const need = productRowsForUpsert.filter((r) => existingById.get(r.id)?.embedded_hash !== r.content_hash);
       let done = 0;
       for (const batch of chunked(need, EMBED_BATCH)) {
         const vectors = await embed(batch.map((r) => productEmbedText(r.search_text)));
-        const rows = batch.map((r: ProductRow, i) => ({ ...r, embedding: vectors[i], embedded_hash: r.content_hash }));
+        const rows = batch.map((r, i) => ({ ...r, embedding: vectors[i], embedded_hash: r.content_hash }));
         await upsertBatched(db, 'products', rows, 'id', errors);
         done += batch.length;
         if (done % 1000 < EMBED_BATCH || done === need.length) console.log(`[ingest] эмбеддинги товаров: ${done}/${need.length}`);

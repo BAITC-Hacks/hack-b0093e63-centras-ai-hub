@@ -124,3 +124,63 @@ export function chunkEmbedText(title: string, heading: string | null, content: s
 export function branchRow(b: Branch) {
   return { ...b, updated_at: new Date().toISOString() };
 }
+
+// ---------------------------------------------------------------------------
+// Изменения цен
+// ---------------------------------------------------------------------------
+
+/** Цена может прийти из PostgREST как number или как numeric-строка ("299.00"). */
+export type PriceLike = number | string | null | undefined;
+
+export interface ExistingPrice {
+  price_site: PriceLike;
+  price_store: PriceLike;
+}
+
+export interface PriceChange {
+  product_id: number;
+  name: string;
+  url: string;
+  price_site_old: number | null;
+  price_site_new: number | null;
+  price_store_old: number | null;
+  price_store_new: number | null;
+}
+
+/** null/undefined → null; иначе числовое значение (принимает и numeric-строки типа "299.00"). */
+export function toPriceNumber(v: PriceLike): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function priceDiffers(a: PriceLike, b: PriceLike): boolean {
+  return toPriceNumber(a) !== toPriceNumber(b);
+}
+
+/**
+ * Сравнивает свежие строки товаров с текущими ценами в БД.
+ * Изменение — если у уже существующего товара отличается price_site или price_store
+ * (null ≠ число считается изменением; численно "299.00" === 299).
+ * Новые товары (нет в `existing`) изменением не считаются.
+ */
+export function detectPriceChanges(existing: Map<number, ExistingPrice>, rows: ProductRow[]): PriceChange[] {
+  const changes: PriceChange[] = [];
+  for (const row of rows) {
+    const prev = existing.get(row.id);
+    if (!prev) continue;
+    const siteChanged = priceDiffers(prev.price_site, row.price_site);
+    const storeChanged = priceDiffers(prev.price_store, row.price_store);
+    if (!siteChanged && !storeChanged) continue;
+    changes.push({
+      product_id: row.id,
+      name: row.name,
+      url: row.url,
+      price_site_old: toPriceNumber(prev.price_site),
+      price_site_new: toPriceNumber(row.price_site),
+      price_store_old: toPriceNumber(prev.price_store),
+      price_store_new: toPriceNumber(row.price_store),
+    });
+  }
+  return changes;
+}
