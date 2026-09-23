@@ -312,6 +312,42 @@ export function validateSuggest(options: unknown): Validation<SuggestAction> {
   return { ok: true, action: { type: "suggest", options: out } };
 }
 
+// Служебные url → цель подсветки по умолчанию, когда navigate есть, а модель highlight не прислала.
+const DEFAULT_HIGHLIGHT_BY_URL: ReadonlyMap<string, Target> = new Map([
+  ["https://ekt.kz/return/", "return_conditions"],
+  ["https://ekt.kz/payments/", "payment_methods"],
+  ["https://ekt.kz/about/contacts/", "contacts_phone"],
+  ["https://ekt.kz/personal/cart/", "cart"],
+  ["https://ekt.kz/catalog/svetilniki_lampy/lampy/", "catalog_list"],
+]);
+
+/** Короткая подсказка по умолчанию для автодобавленной подсветки (D1) — по target. */
+const DEFAULT_HIGHLIGHT_NOTE: Record<Target, string> = {
+  price: "Вот цена на сайте",
+  buy_button: "Кнопка «Купить»",
+  characteristics: "Характеристики",
+  description: "Описание товара",
+  return_conditions: "Условия возврата",
+  payment_methods: "Способы оплаты",
+  contacts_phone: "Телефон филиала",
+  catalog_list: "Список товаров",
+  search: "Поиск по сайту",
+  cart: "Ваша корзина",
+};
+
+/**
+ * Цель подсветки по умолчанию для url перехода: точное совпадение со служебной страницей (см.
+ * DEFAULT_HIGHLIGHT_BY_URL) или, если url — карточка товара из результатов этого диалога
+ * (productUrls), `price`. Для прочих url (например произвольная страница базы знаний без
+ * очевидной цели) — null: лучше не подсветить ничего, чем угадать неверную цель.
+ */
+function defaultHighlightTarget(url: string, productUrls: Iterable<string>): Target | null {
+  const svc = DEFAULT_HIGHLIGHT_BY_URL.get(url);
+  if (svc) return svc;
+  for (const u of productUrls) if (u === url) return "price";
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Сборщик действий хода
 // ---------------------------------------------------------------------------
@@ -322,13 +358,22 @@ export function validateSuggest(options: unknown): Validation<SuggestAction> {
  * более ранние того же типа отбрасываются); highlight — не больше MAX_HIGHLIGHT, дедуп по target
  * (последняя note выигрывает), оставляются первые встретившиеся различные target.
  *
- * Автодобавление: fill(form="search") без click(target="search_submit") сам по себе не запускает
- * поиск на сайте — заполняет поле и всё. Если в ходе нет НИКАКОГО click (лимит click ≤ 1 не даёт
- * добавить его молча поверх другого click, например buy_button — тогда оставляем как есть), сразу
- * после fill добавляется click(target="search_submit"). Модель может по-прежнему прислать этот
- * click сама — тогда ничего не добавляется, дублей не будет.
+ * Автодобавление 1: fill(form="search") без click(target="search_submit") сам по себе не
+ * запускает поиск на сайте — заполняет поле и всё. Если в ходе нет НИКАКОГО click (лимит click ≤ 1
+ * не даёт добавить его молча поверх другого click, например buy_button — тогда оставляем как
+ * есть), сразу после fill добавляется click(target="search_submit"). Модель может по-прежнему
+ * прислать этот click сама — тогда ничего не добавляется, дублей не будет.
+ *
+ * Автодобавление 2: navigate без НИКАКОГО highlight в ходе — клиент попадает на новую страницу
+ * без единой подсветки, хотя обычно есть очевидная цель (цена товара, условия возврата и т. п.).
+ * Если у navigate.url есть цель по умолчанию (см. `defaultHighlightTarget`; для этого функции
+ * нужны `productUrls` — url карточек товаров этого диалога, из ProductCard[].url), она
+ * добавляется. Модель может по-прежнему прислать свой highlight — тогда ничего не добавляется.
  */
-export function collectTurnActions(actions: UiAction[]): UiAction[] {
+export function collectTurnActions(
+  actions: UiAction[],
+  opts: { productUrls?: Iterable<string> } = {},
+): UiAction[] {
   const lastSingleIndex = new Map<UiAction["type"], number>();
   const lastHighlightIndexByTarget = new Map<Target, number>();
   const highlightTargetsInOrder: Target[] = [];
@@ -364,6 +409,17 @@ export function collectTurnActions(actions: UiAction[]): UiAction[] {
   if (fillSearchIdx !== -1 && !hasClick) {
     const autoSubmit: ClickAction = { type: "click", target: "search_submit", label: "Ищу на сайте" };
     result.splice(fillSearchIdx + 1, 0, autoSubmit);
+  }
+
+  const navIdx = result.findIndex((a) => a.type === "navigate");
+  const hasHighlight = result.some((a) => a.type === "highlight");
+  if (navIdx !== -1 && !hasHighlight) {
+    const nav = result[navIdx] as NavigateAction;
+    const target = defaultHighlightTarget(nav.url, opts.productUrls ?? []);
+    if (target) {
+      const autoHighlight: HighlightAction = { type: "highlight", target, note: DEFAULT_HIGHLIGHT_NOTE[target] };
+      result.splice(navIdx + 1, 0, autoHighlight);
+    }
   }
 
   return result;

@@ -24,7 +24,7 @@ import {
   TOOL_LABELS,
   type ToolOutcome,
 } from "./tools.ts";
-import { collectKnownUrls, collectTurnActions, type UiAction } from "./ui_actions.ts";
+import { collectKnownUrls, collectTurnActions, type NavigateAction, type UiAction } from "./ui_actions.ts";
 import { pickMentionedProducts, validateAnswer } from "./validate.ts";
 
 export interface ChatRequest {
@@ -191,11 +191,19 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       w.send("delta", { text: answer });
     }
 
+    // Все карточки товаров этого диалога (этот ход + история) — используются и для события
+    // `products`, и для того, чтобы collectTurnActions понимал, что navigate.url ведёт на карточку
+    // товара (а не на служебную страницу), и мог подставить highlight target=price по умолчанию.
+    const allCards = [...outcomes.flatMap((o) => o.cards), ...prior.cards];
+
     // UI-действия (navigate/highlight/click/fill/suggest) хода: собраны из успешных вызовов
-    // инструментов и сжаты по лимитам (1 navigate/click/fill/suggest, ≤3 highlight). Считаем
-    // их до validateAnswer, чтобы проверить и «заявленные, но не выполненные» действия в тексте.
+    // инструментов и сжаты по лимитам (1 navigate/click/fill/suggest, ≤3 highlight); navigate без
+    // highlight получает подсветку по умолчанию (цена товара/условия возврата/... — см.
+    // ui_actions.ts). Считаем их до validateAnswer, чтобы проверить и «заявленные, но не
+    // выполненные» действия в тексте.
     const uiActions: UiAction[] = collectTurnActions(
       outcomes.map((o) => o.uiAction).filter((a): a is UiAction => !!a),
+      { productUrls: allCards.map((c) => c.url) },
     );
 
     // Детерминированная проверка ответа.
@@ -212,11 +220,10 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       }),
     );
 
-    const cards = pickMentionedProducts(
-      answer,
-      [...outcomes.flatMap((o) => o.cards), ...prior.cards],
-      LIMITS.maxProductCards,
-    );
+    // Товар, на который идёт navigate (если есть карточка в этом диалоге), всегда показывается
+    // первым, даже если ответ не содержит текстовой ссылки на него.
+    const navigatedUrl = uiActions.find((a): a is NavigateAction => a.type === "navigate")?.url;
+    const cards = pickMentionedProducts(answer, allCards, LIMITS.maxProductCards, navigatedUrl);
     if (cards.length) {
       w.send("products", {
         items: cards.map((c) => ({

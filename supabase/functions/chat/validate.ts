@@ -154,8 +154,18 @@ export interface CardLike {
 /**
  * Товары, упомянутые в ответе (по URL, иначе по артикулу), в порядке первого упоминания.
  * Дубликаты по id убираются; возвращается не больше `max`.
+ *
+ * `pinnedUrl` — url товара, на который в этом ходе идёт navigate_to (если есть): его карточка
+ * всегда попадает в результат ПЕРВОЙ, даже если модель не упомянула ссылку на него текстом (так
+ * клиент видит карточку товара, на который его переводят, а не голый переход без контекста в
+ * чате). Если карточки с таким url нет в `cards` — просто игнорируется.
  */
-export function pickMentionedProducts<T extends CardLike>(answer: string, cards: T[], max: number): T[] {
+export function pickMentionedProducts<T extends CardLike>(
+  answer: string,
+  cards: T[],
+  max: number,
+  pinnedUrl?: string | null,
+): T[] {
   const firstUrlPos = new Map<string, number>();
   for (const m of answer.matchAll(EKT_URL_RE)) {
     const n = normalizeUrl(m[0]);
@@ -171,6 +181,12 @@ export function pickMentionedProducts<T extends CardLike>(answer: string, cards:
       if (idx !== -1) at = idx;
     }
     if (at !== undefined) found.set(c.id, { card: c, at });
+  }
+  if (pinnedUrl) {
+    const norm = normalizeUrl(pinnedUrl);
+    const pinned = cards.find((c) => c.url && normalizeUrl(c.url) === norm);
+    // at = -1 сортирует раньше любого текстового упоминания (matchAll/indexOf дают at >= 0).
+    if (pinned) found.set(pinned.id, { card: pinned, at: -1 });
   }
   return [...found.values()].sort((a, b) => a.at - b.at).slice(0, max).map((x) => x.card);
 }

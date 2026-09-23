@@ -417,3 +417,47 @@ Deno.test("collectTurnActions: highlight между fill(search) и авто-cli
   const out = collectTurnActions([fillSearch("лампа GX53"), hl("catalog_list")]);
   assertEquals(out.map((a) => a.type), ["fill", "click", "highlight"]);
 });
+
+// ---------------------------------------------------------------------------
+// collectTurnActions — автодобавление highlight по умолчанию, когда navigate есть, а highlight — нет
+// ---------------------------------------------------------------------------
+
+Deno.test("collectTurnActions: navigate на служебную страницу без highlight — подставляется цель по умолчанию", () => {
+  const cases: [string, string][] = [
+    ["https://ekt.kz/return/", "return_conditions"],
+    ["https://ekt.kz/payments/", "payment_methods"],
+    ["https://ekt.kz/about/contacts/", "contacts_phone"],
+    ["https://ekt.kz/personal/cart/", "cart"],
+    ["https://ekt.kz/catalog/svetilniki_lampy/lampy/", "catalog_list"],
+  ];
+  for (const [url, target] of cases) {
+    const out = collectTurnActions([nav(url)]);
+    assertEquals(out.map((a) => a.type), ["navigate", "highlight"], `url=${url}`);
+    assertEquals((out[1] as { target: string }).target, target, `url=${url}`);
+  }
+});
+
+Deno.test("collectTurnActions: navigate на карточку товара (из productUrls) без highlight — target=price", () => {
+  const productUrl = "https://ekt.kz/catalog/lampy/lampa-a60-10w/";
+  const out = collectTurnActions([nav(productUrl)], { productUrls: [productUrl] });
+  assertEquals(out.map((a) => a.type), ["navigate", "highlight"]);
+  assertEquals((out[1] as { target: string }).target, "price");
+});
+
+Deno.test("collectTurnActions: navigate на url без известной цели (и без productUrls) — highlight не добавляется", () => {
+  const out = collectTurnActions([nav("https://ekt.kz/about/faq/")]);
+  assertEquals(out.map((a) => a.type), ["navigate"]);
+});
+
+Deno.test("collectTurnActions: navigate + свой highlight — автодобавление не срабатывает (highlight уже есть)", () => {
+  const out = collectTurnActions([nav("https://ekt.kz/return/"), hl("description", "Своя подсказка")]);
+  assertEquals(out.filter((a) => a.type === "highlight").length, 1);
+  const highlight = out.find((a) => a.type === "highlight") as { target: string; note: string };
+  assertEquals(highlight.target, "description");
+  assertEquals(highlight.note, "Своя подсказка");
+});
+
+Deno.test("collectTurnActions: без navigate — автодобавление highlight не срабатывает", () => {
+  const out = collectTurnActions([{ type: "click", target: "buy_button", label: "Добавляю" }]);
+  assertEquals(out.some((a) => a.type === "highlight"), false);
+});

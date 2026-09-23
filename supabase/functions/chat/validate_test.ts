@@ -158,6 +158,50 @@ Deno.test("pickMentionedProducts: порядок по первому упоми�
 });
 
 // ---------------------------------------------------------------------------
+// pickMentionedProducts: pinnedUrl — карточка товара, на который идёт navigate, показывается
+// первой, даже если ответ не содержит текстовой ссылки на него.
+// ---------------------------------------------------------------------------
+
+const pinCards = [
+  { id: 1, url: "https://ekt.kz/catalog/a/", sku: "AAA111" },
+  { id: 2, url: "https://ekt.kz/catalog/b/", sku: "BBB222" },
+  { id: 3, url: "https://ekt.kz/catalog/c/", sku: "CCC333" },
+];
+
+Deno.test("pickMentionedProducts: pinnedUrl без текстовых упоминаний — карточка добавляется первой", () => {
+  const out = pickMentionedProducts("Открываю карточку товара…", pinCards, 6, "https://ekt.kz/catalog/b/");
+  assertEquals(out.map((c) => c.id), [2]);
+});
+
+Deno.test("pickMentionedProducts: pinnedUrl упомянут позже других в тексте — всё равно выходит первым", () => {
+  const answer = "Сначала [A](https://ekt.kz/catalog/a/), затем [C](https://ekt.kz/catalog/c/)";
+  const out = pickMentionedProducts(answer, pinCards, 6, "https://ekt.kz/catalog/c/");
+  assertEquals(out.map((c) => c.id), [3, 1]);
+});
+
+Deno.test("pickMentionedProducts: pinnedUrl — нормализация (www./хвостовой /) учитывается", () => {
+  const out = pickMentionedProducts("текст", pinCards, 6, "https://www.ekt.kz/catalog/b");
+  assertEquals(out.map((c) => c.id), [2]);
+});
+
+Deno.test("pickMentionedProducts: pinnedUrl без карточки с таким url — просто игнорируется", () => {
+  const out = pickMentionedProducts("текст", pinCards, 6, "https://ekt.kz/catalog/does-not-exist/");
+  assertEquals(out, []);
+});
+
+Deno.test("pickMentionedProducts: pinnedUrl уважает лимит max (обрезает вместе с остальными)", () => {
+  const answer = "Сначала [A](https://ekt.kz/catalog/a/), затем [B](https://ekt.kz/catalog/b/)";
+  const out = pickMentionedProducts(answer, pinCards, 1, "https://ekt.kz/catalog/c/");
+  assertEquals(out.map((c) => c.id), [3]);
+});
+
+Deno.test("pickMentionedProducts: без pinnedUrl (undefined/null) — поведение как раньше", () => {
+  const answer = "Сначала [A](https://ekt.kz/catalog/a/)";
+  assertEquals(pickMentionedProducts(answer, pinCards, 6).map((c) => c.id), [1]);
+  assertEquals(pickMentionedProducts(answer, pinCards, 6, null).map((c) => c.id), [1]);
+});
+
+// ---------------------------------------------------------------------------
 // detectClaimedActionTypes / claimed_action_without_tool — ответ не должен утверждать, что
 // действие на сайте выполнено/выполняется, если соответствующий action не отправлен.
 // ---------------------------------------------------------------------------
