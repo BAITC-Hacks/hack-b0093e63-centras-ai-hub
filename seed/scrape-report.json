@@ -1,0 +1,32 @@
+{
+  "started_at": "2026-09-23T10:13:42.786Z",
+  "finished_at": "2026-09-23T10:15:01.757Z",
+  "duration_s": 80,
+  "limit": 0,
+  "sitemap_urls": 14166,
+  "robots_blocked": 2,
+  "service_pages": [
+    "https://ekt.kz/about/faq/",
+    "https://ekt.kz/about/howto/",
+    "https://ekt.kz/payments/",
+    "https://ekt.kz/return/"
+  ],
+  "total_urls": 521,
+  "fetched": 521,
+  "failed": [],
+  "counts": {
+    "product": 105,
+    "category": 26,
+    "page": 123,
+    "skip": 3,
+    "products_unique": 89,
+    "categories_fetched": 10,
+    "categories_total": 24,
+    "branches": 9
+  },
+  "skipped": {
+    "home page": 1,
+    "empty page": 2,
+    "max_products": 264
+  }
+}
