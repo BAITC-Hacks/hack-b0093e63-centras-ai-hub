@@ -109,6 +109,66 @@ export function applyLimit(urls: string[], limit: number): string[] {
   return [...urls.filter((u) => !isCatalog(u)), ...sample];
 }
 
+const isCatalogUrl = (u: string) => new URL(u).pathname.startsWith('/catalog/');
+
+/** Порядок «вразброс»: 0, n/2, n/4, 3n/4… — чтобы первые N каталожных URL покрывали все подкатегории. */
+export function spreadOrder<T>(items: T[]): T[] {
+  const out: T[] = [];
+  const taken = new Set<number>();
+  for (let step = items.length; step >= 1 && out.length < items.length; step = Math.floor(step / 2)) {
+    for (let i = 0; i < items.length; i += step) {
+      if (!taken.has(i)) {
+        taken.add(i);
+        out.push(items[i]);
+      }
+    }
+    if (step === 1) break;
+  }
+  return out;
+}
+
+/**
+ * Режим «одна категория, N товаров» (SCRAPER_CATEGORY + SCRAPER_MAX_PRODUCTS):
+ * все некаталожные страницы + каталожные URL внутри категории. Уже отслеживаемые товары идут
+ * первыми — ежедневный прогон перепроверяет цены тех же товаров, остальные добирают до лимита.
+ */
+export function selectCategoryUrls(urls: string[], categoryPath: string, tracked: Set<string>): string[] {
+  // Git Bash под Windows превращает "/catalog/..." в "C:/Program Files/Git/catalog/..." — берём путь с /catalog/
+  let p = categoryPath.trim();
+  try {
+    p = new URL(p).pathname;
+  } catch {
+    /* не URL — путь */
+  }
+  const i = p.indexOf('/catalog/');
+  if (i > 0) p = p.slice(i);
+  const prefix = p.endsWith('/') ? p : `${p}/`;
+  const inCategory = urls.filter((u) => isCatalogUrl(u) && new URL(u).pathname.startsWith(prefix));
+  const trackedFirst = inCategory.filter((u) => tracked.has(u));
+  const rest = spreadOrder(inCategory.filter((u) => !tracked.has(u)));
+  return [...urls.filter((u) => !isCatalogUrl(u)), ...trackedFirst, ...rest];
+}
+
+/** URL товаров, цены которых уже отслеживаются: из базы (если есть ключи) или из seed/products.jsonl. */
+async function loadTrackedUrls(): Promise<Set<string>> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (url && key) {
+    try {
+      const res = await fetch(`${url}/rest/v1/products?select=url&is_active=eq.true&limit=5000`, {
+        headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'ekt' },
+      });
+      if (res.ok) {
+        const rows = (await res.json()) as { url: string }[];
+        if (rows.length) return new Set(rows.map((r) => r.url));
+      }
+    } catch {
+      /* нет сети до БД — берём seed */
+    }
+  }
+  return new Set(readJsonl<{ url: string }>(path.resolve('seed', 'products.jsonl')).map((p) => p.url));
+}
+
 function fmtDuration(sec: number): string {
   if (!Number.isFinite(sec)) return '?';
   const h = Math.floor(sec / 3600);
@@ -123,19 +183,28 @@ async function main() {
   const delayMs = envInt('SCRAPER_DELAY_MS', 300);
   const limit = envInt('SCRAPER_LIMIT', 0);
   const skipService = process.env.SCRAPER_SKIP_SERVICE_PAGES === '1';
+  const category = (process.env.SCRAPER_CATEGORY ?? '').trim();
+  const maxProducts = envInt('SCRAPER_MAX_PRODUCTS', 0);
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const t0 = Date.now();
-  console.log(`[scrape] UA="${USER_AGENT}" concurrency=${concurrency} delay=${delayMs}ms limit=${limit || 'нет'} resume=${resume}`);
+  console.log(
+    `[scrape] UA="${USER_AGENT}" concurrency=${concurrency} delay=${delayMs}ms limit=${limit || 'нет'} ` +
+      `category=${category || 'все'} max_products=${maxProducts || 'нет'} resume=${resume}`,
+  );
 
   const robots = await fetchRobots(ORIGIN, fetchText, USER_AGENT);
   const sitemapUrls = await loadSitemapUrls(SITEMAP_URL);
   const { urls: allUrls, blocked } = buildUrlList(sitemapUrls, robots, skipService);
-  const urls = applyLimit(allUrls, limit);
+  const tracked = category ? await loadTrackedUrls() : new Set<string>();
+  const urls = category ? selectCategoryUrls(allUrls, category, tracked) : applyLimit(allUrls, limit);
   console.log(
     `[scrape] sitemap: ${sitemapUrls.length} URL, к обходу: ${allUrls.length}, закрыто robots.txt: ${blocked.length}` +
-      (limit > 0 ? `, с учётом SCRAPER_LIMIT: ${urls.length}` : ''),
+      (category ? `, в категории + страницы: ${urls.length}, отслеживаемых товаров: ${tracked.size}` : '') +
+      (!category && limit > 0 ? `, с учётом SCRAPER_LIMIT: ${urls.length}` : ''),
   );
+  const productLimitReached = (url: string) =>
+    maxProducts > 0 && isCatalogUrl(url) && !tracked.has(url) && (progress.counts.product ?? 0) >= maxProducts;
 
   let progress: Progress = {
     started_at: new Date().toISOString(),
@@ -173,6 +242,12 @@ async function main() {
   await runPool(
     todo,
     async (url) => {
+      if (productLimitReached(url)) {
+        progress.skipped.max_products = (progress.skipped.max_products ?? 0) + 1;
+        done.add(url);
+        processed++;
+        return;
+      }
       const res = await fetchText(url);
       if (res.status !== 200 || !res.body) {
         progress.failed.push({ url, status: res.status, ...(res.error ? { error: res.error } : {}) });
@@ -218,7 +293,11 @@ async function main() {
   saveProgress();
 
   // Дедупликация и дерево категорий (страницы категорий + крошки товаров)
-  const products = dedupeBy(readJsonl<Product>(F.products), (p) => String(p.id));
+  let products = dedupeBy(readJsonl<Product>(F.products), (p) => String(p.id));
+  if (maxProducts > 0 && products.length > maxProducts) {
+    // параллельные потоки могли добрать чуть больше лимита; отслеживаемые — в приоритете
+    products = [...products.filter((p) => tracked.has(p.url)), ...products.filter((p) => !tracked.has(p.url))].slice(0, maxProducts);
+  }
   writeJsonl(F.products, products);
   writeJsonl(F.pages, dedupeBy(readJsonl<{ url: string }>(F.pages), (p) => p.url));
   const fetchedCats = dedupeBy(readJsonl<Category>(F.categories).filter((c) => c.fetched), (c) => c.url);
