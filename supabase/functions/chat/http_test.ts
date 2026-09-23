@@ -49,3 +49,8 @@ Deno.test("buildSystemPrompt: контекст и очистка метадан�
   assertEquals(p.includes("Город клиента (по данным сайта): Алматы"), true);
   assertEquals(sanitizeMeta("a\u0000b<script>", 100), "a bscript");
 });
+
+Deno.test("parseChatBody: не-UTF-8 текст (U+FFFD) отклоняется", () => {
+  assertEquals(parseChatBody({ message: "\uFFFD\uFFFD\uFFFD\uFFFD\uFFFD \uFFFD \uFFFD\uFFFD\uFFFD?" }, 2000).ok, false);
+  assertEquals(parseChatBody({ message: "Лампа E27 \uFFFD 10 Вт" }, 2000).ok, true);
+});

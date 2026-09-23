@@ -44,6 +44,11 @@ export function parseChatBody(body: unknown, maxChars: number): Parsed<{
   const message = b.message.trim();
   if (message.length < 1) return { ok: false, error: "message is empty" };
   if (message.length > maxChars) return { ok: false, error: `message is longer than ${maxChars} characters` };
+  // Тело не в UTF-8 (например, cp1251) превращается в U+FFFD — модель тогда «угадывает» вопрос.
+  const broken = (message.match(/�/g) ?? []).length;
+  if (broken > 0 && broken / message.length > 0.2) {
+    return { ok: false, error: "message must be UTF-8 encoded" };
+  }
   let session_id: string | undefined;
   if (b.session_id !== undefined && b.session_id !== null && b.session_id !== "") {
     if (typeof b.session_id !== "string" || !UUID_RE.test(b.session_id)) {
