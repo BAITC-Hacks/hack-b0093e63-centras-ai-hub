@@ -1,0 +1,48 @@
+name: Refresh ekt.kz data
+
+# Ежедневно в 03:15 по Алматы (UTC+5) — скрапинг ekt.kz и загрузка в Supabase.
+on:
+  schedule:
+    - cron: "15 22 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Ограничить число URL (0 = все)"
+        required: false
+        default: "0"
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      SCRAPER_CONCURRENCY: "3"
+      SCRAPER_DELAY_MS: "300"
+      SCRAPER_LIMIT: ${{ github.event.inputs.limit || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Scrape ekt.kz
+        run: npm run scrape
+      - name: Ingest into Supabase
+        run: npm run ingest
+      - name: Upload scrape report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-report
+          path: data/scrape-report.json
+          if-no-files-found: ignore
