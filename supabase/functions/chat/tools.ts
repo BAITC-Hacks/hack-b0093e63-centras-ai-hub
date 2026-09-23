@@ -367,6 +367,7 @@ const searchProducts: Executor = async (args, ctx) => {
     category: Array.isArray(r.category_path) ? (r.category_path as string[]).join(" / ") : null,
     price_site: num(r.price_site),
     price_store: num(r.price_store),
+    ...(r.order_note ? { order_note: r.order_note } : {}),
     multiplicity: num(r.multiplicity),
     attrs: compactAttrs(r.attrs),
   }));
@@ -374,7 +375,7 @@ const searchProducts: Executor = async (args, ctx) => {
     count: items.length,
     items,
     data_updated_at: await scrapedDates(ctx.db, items.map((i) => i.id)),
-    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер.",
+    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
   };
   if (relaxed.length) {
     result.relaxed = true;
@@ -387,7 +388,7 @@ const searchProducts: Executor = async (args, ctx) => {
 };
 
 const PRODUCT_COLUMNS =
-  "id, sku, supplier_sku, name, url, category_url, category_path, brand, price_site, price_store, currency, " +
+  "id, sku, supplier_sku, name, url, category_url, category_path, brand, price_site, price_store, order_note, currency, " +
   "city, multiplicity, is_new, image_url, description, attrs, is_active, scraped_at";
 
 function urlVariants(raw: string): string[] {
@@ -438,6 +439,7 @@ const getProduct: Executor = async (args, ctx) => {
     category_url: row.category_url ?? null,
     price_site: num(row.price_site),
     price_store: num(row.price_store),
+    order_note: row.order_note ?? null,
     currency: row.currency,
     multiplicity: num(row.multiplicity),
     is_new: row.is_new,
@@ -449,7 +451,7 @@ const getProduct: Executor = async (args, ctx) => {
     found: true,
     item,
     data_updated_at: isoDate(row.scraped_at),
-    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер.",
+    prices_note: "Цены в ₸ для Алматы; наличие и итоговую цену уточняет менеджер. price_site = null — цены на сайте нет (см. order_note, напр. «Под заказ»): говори «цена по запросу», предлагай заявку.",
   };
   if (!row.is_active) result.note = "Товар снят с продажи / отсутствует на сайте при последнем обновлении.";
   return { result, cards: row.is_active ? [toCard(row)] : [] };

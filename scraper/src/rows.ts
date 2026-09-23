@@ -38,6 +38,7 @@ export interface ProductRow {
   brand: string | null;
   price_site: number | null;
   price_store: number | null;
+  order_note: string | null;
   currency: string;
   city: string;
   multiplicity: number;
@@ -70,6 +71,7 @@ export function productRow(p: Product, scrapedAt: string, knownCategories?: Set<
     brand: p.brand,
     price_site: p.price_site,
     price_store: p.price_store,
+    order_note: p.order_note ?? null,
     currency: p.currency ?? 'KZT',
     city: 'almaty',
     multiplicity: p.multiplicity,
