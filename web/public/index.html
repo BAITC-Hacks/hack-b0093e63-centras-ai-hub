@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ИИ-консультант EKT</title>
+  <meta name="description" content="ИИ-консультант для интернет-магазина ekt.kz: подбор электротехники, цены, условия и филиалы — прямо в чате на сайте.">
+  <!-- Адрес Edge Function чата. Замените при деплое; для локальной проверки можно открыть страницу с ?api=http://localhost:8787 -->
+  <meta name="ekt-api" content="https://YOUR-PROJECT.supabase.co/functions/v1/chat">
+  <meta name="theme-color" content="#2c7294">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232c7294'/%3E%3Cpath d='M17.5 5 8 18h7l-1.5 9L24 14h-7z' fill='%23f4b301'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --teal: #2c7294;
+      --teal-strong: #235c78;
+      --teal-soft: #e9f2f6;
+      --yellow: #f4b301;
+      --navy: #0b4366;
+      --bg: #ffffff;
+      --canvas: #f3f6f8;
+      --text: #1c2830;
+      --muted: #53616c;
+      --line: #dce4ea;
+      --font: "PT Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+    ::selection { background: rgba(44, 114, 148, .22); }
+    a { color: var(--teal-strong); text-underline-offset: 3px; }
+    :focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; border-radius: 4px; }
+    h1, h2, h3 { line-height: 1.15; margin: 0; text-wrap: balance; }
+    p { margin: 0; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+    /* Top bar */
+    .top { background: var(--navy); color: #fff; }
+    .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 700; letter-spacing: .02em; }
+    .brand-mark { width: 32px; height: 32px; border-radius: 8px; background: var(--yellow); display: grid; place-items: center; color: var(--navy); }
+    .brand small { display: block; font-weight: 400; font-size: 13px; letter-spacing: 0; color: #c9dce6; }
+    .top nav { display: flex; gap: 20px; font-size: 15px; }
+    .top nav a { color: #e3eef4; text-decoration: none; }
+    .top nav a:hover { color: #fff; text-decoration: underline; }
+    .stripe { height: 4px; background: var(--yellow); }
+
+    .notice { background: #fff8e1; border-bottom: 1px solid #f3dc92; color: #5b4300; font-size: 15px; }
+    .notice .wrap { padding-top: 10px; padding-bottom: 10px; }
+    .notice code { font-family: var(--mono); font-size: 13.5px; background: #fdeeb8; padding: 1px 5px; border-radius: 4px; }
+
+    /* Hero */
+    .hero { background: var(--canvas); border-bottom: 1px solid var(--line); }
+    .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 48px; align-items: center; padding-top: 64px; padding-bottom: 64px; }
+    .hero h1 { font-size: 48px; letter-spacing: -.02em; color: var(--navy); }
+    .lead { margin-top: 18px; font-size: 20px; line-height: 1.5; color: #33424d; max-width: 34em; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 22px; border-radius: 8px; font: 700 16px/1 var(--font); text-decoration: none; cursor: pointer; border: 1px solid transparent; transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+    .btn.primary { background: var(--teal); color: #fff; }
+    .btn.primary:hover { background: var(--teal-strong); }
+    .btn.secondary { background: #fff; color: var(--teal-strong); border-color: #b9ccd7; }
+    .btn.secondary:hover { border-color: var(--teal); background: var(--teal-soft); }
+    .btn svg { width: 20px; height: 20px; }
+    .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 28px; padding: 0; list-style: none; font-size: 15px; color: var(--muted); }
+    .facts li { display: flex; align-items: center; gap: 8px; }
+    .facts li::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--yellow); }
+
+    .shot { position: relative; margin: 0; border-radius: 14px; overflow: hidden; background: var(--navy); box-shadow: 0 24px 60px rgba(16, 24, 32, .18), 0 4px 12px rgba(16, 24, 32, .1); aspect-ratio: 475 / 552; max-height: 460px; justify-self: end; width: 100%; max-width: 400px; }
+    .shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .shot figcaption { position: absolute; left: 16px; right: 16px; bottom: 16px; background: #fff; border-radius: 12px; border-top-left-radius: 4px; padding: 12px 14px; font-size: 15px; line-height: 1.4; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+    .shot figcaption b { color: var(--teal-strong); }
+
+    /* Sections */
+    section.block { padding: 72px 0; }
+    section.block + section.block { border-top: 1px solid var(--line); }
+    .section-head { max-width: 40em; margin-bottom: 32px; }
+    .section-head h2 { font-size: 32px; letter-spacing: -.01em; color: var(--navy); }
+    .section-head p { margin-top: 10px; color: var(--muted); font-size: 18px; }
+
+    .abilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; margin: 0; }
+    .abilities div { padding: 18px 0; border-top: 1px solid var(--line); }
+    .abilities dt { font-weight: 700; font-size: 18px; }
+    .abilities dd { margin: 6px 0 0; color: #3b4a55; }
+
+    .ask-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0; margin: 0; list-style: none; }
+    .ask { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font: 16px/1.35 var(--font); text-align: left; cursor: pointer; transition: border-color .15s ease, background-color .15s ease; }
+    .ask:hover { border-color: var(--teal); background: var(--teal-soft); }
+    .ask svg { flex: none; width: 18px; height: 18px; color: var(--teal); }
+    .ask small { display: block; color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+
+    .embed { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 40px; align-items: start; }
+    .code { position: relative; background: #0f2a3a; color: #e6f0f5; border-radius: 12px; padding: 20px 20px 20px; font: 14px/1.6 var(--mono); overflow-x: auto; }
+    .code pre { margin: 0; white-space: pre-wrap; word-break: break-all; padding-right: 96px; }
+    .code .k { color: #f4c64a; } .code .s { color: #9fd8b5; }
+    .copy { position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; font: 700 13.5px/1 var(--font); cursor: pointer; }
+    .copy:hover { background: rgba(255,255,255,.16); }
+    .copy:focus-visible { outline-color: var(--yellow); }
+    .attrs { width: 100%; border-collapse: collapse; font-size: 15px; }
+    .attrs th, .attrs td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .attrs th { font-size: 13.5px; color: var(--muted); font-weight: 700; }
+    .attrs code { font: 13.5px var(--mono); color: var(--navy); white-space: nowrap; }
+    .hint { margin-top: 14px; font-size: 15px; color: var(--muted); }
+    .hint code { font: 13.5px var(--mono); }
+
+    .limits { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; max-width: 46em; }
+    .limits li { padding-left: 28px; position: relative; }
+    .limits li::before { content: ""; position: absolute; left: 4px; top: .62em; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--teal); }
+
+    footer { background: var(--canvas); border-top: 1px solid var(--line); padding: 28px 0 110px; color: var(--muted); font-size: 15px; }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+    @media (max-width: 900px) {
+      .hero .wrap { grid-template-columns: 1fr; gap: 32px; padding-top: 40px; padding-bottom: 40px; }
+      .hero h1 { font-size: 36px; }
+      .lead { font-size: 18px; }
+      .shot { justify-self: stretch; max-width: none; aspect-ratio: 16 / 10; }
+      .embed { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      body { font-size: 16px; }
+      .top nav { display: none; }
+      .hero h1 { font-size: 30px; }
+      section.block { padding: 48px 0; }
+      .section-head h2 { font-size: 26px; }
+      .abilities, .ask-list { grid-template-columns: 1fr; }
+      .code pre { padding-right: 0; padding-top: 40px; }
+      .attrs code { white-space: normal; }
+      .btn { width: 100%; justify-content: center; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="https://ekt.kz/" rel="noopener">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="currentColor"/></svg></span>
+        <span>EKT<small>ГК «Электрокомплект»</small></span>
+      </a>
+      <nav aria-label="Разделы">
+        <a href="#can">Возможности</a>
+        <a href="#try">Примеры</a>
+        <a href="#embed">Встраивание</a>
+      </nav>
+    </div>
+  </header>
+  <div class="stripe" aria-hidden="true"></div>
+
+  <div class="notice" id="api-notice" hidden>
+    <div class="wrap">API чата не настроен: укажите адрес Edge Function в <code>&lt;meta name="ekt-api"&gt;</code> этой страницы или откройте её с параметром <code>?api=http://localhost:8787</code> для проверки на мок-сервере.</div>
+  </div>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <div>
+          <h1>ИИ-консультант для покупателей ekt.kz</h1>
+          <p class="lead">Отвечает за секунды, днём и ночью: подбирает электротехнику из каталога с ценами и ссылками на карточки, объясняет оплату, доставку и возврат, подсказывает адрес и график ближайшего филиала.</p>
+          <div class="actions">
+            <button class="btn primary" type="button" data-open>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+              Открыть консультанта
+            </button>
+            <a class="btn secondary" href="#embed">Как встроить на сайт</a>
+          </div>
+          <ul class="facts">
+            <li>Весь каталог ekt.kz</li>
+            <li>Данные обновляются ежедневно</li>
+            <li>Русский, казахский, английский</li>
+          </ul>
+        </div>
+        <figure class="shot">
+          <img src="https://ekt.kz/bitrix/templates/ekt/images/trade-marks/ekt-main.jpg" alt="Модульные автоматы в электрощите" width="475" height="552" loading="eager">
+          <figcaption><b>Покупатель:</b> нужен автомат на 25 А для розеток на кухне — какой взять и сколько стоит?</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="block" id="can">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Что умеет консультант</h2>
+          <p>Отвечает только по данным, собранным с ekt.kz. Если информации нет — честно говорит об этом и предлагает связаться с филиалом.</p>
+        </div>
+        <dl class="abilities">
+          <div><dt>Подбор товаров</dt><dd>Понимает задачу своими словами («лампа в спальню», «автомат для духовки») и предлагает подходящие позиции с фильтрами по бренду, цене и характеристикам.</dd></div>
+          <div><dt>Цены и артикулы</dt><dd>Показывает цену на сайте и в магазине, артикул и ссылку на карточку товара. Цены указаны для Алматы, на дату последнего обновления.</dd></div>
+          <div><dt>Сравнение и аналоги</dt><dd>Сопоставляет характеристики нескольких товаров и подсказывает замену, если нужной позиции нет.</dd></div>
+          <div><dt>Условия покупки</dt><dd>Как оформить заказ, способы оплаты, доставка, возврат и обмен: ответы по страницам сайта.</dd></div>
+          <div><dt>Филиалы</dt><dd>Адреса, телефоны и график работы в девяти городах Казахстана.</dd></div>
+          <div><dt>Заявка менеджеру</dt><dd>Если нужен расчёт или консультация специалиста, собирает контакты и передаёт заявку — только с согласия покупателя.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="block" id="try">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Попробуйте спросить</h2>
+          <p>Нажмите на вопрос, и он отправится в чат.</p>
+        </div>
+        <ul class="ask-list">
+          <li><button class="ask" type="button" data-ask="Какую лампу выбрать для спальни с цоколем E27?"><span>Какую лампу выбрать для спальни с цоколем E27?<small>подбор по задаче</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Нужен автомат на 25А для розеток на кухне"><span>Нужен автомат на 25А для розеток на кухне<small>подбор и цены</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Сравни кабель ВВГнг 3х2,5 разных производителей по цене"><span>Сравни кабель ВВГнг 3х2,5 разных производителей<small>сравнение</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Где находится филиал в Астане и как он работает в субботу?"><span>Где филиал в Астане и как он работает в субботу?<small>филиалы</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Можно ли вернуть товар, если он не подошёл?"><span>Можно ли вернуть товар, если он не подошёл?<small>условия</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+          <li><button class="ask" type="button" data-ask="Үйге арналған LED шам керек, бағасы қанша?"><span>Үйге арналған LED шам керек, бағасы қанша?<small>на казахском</small></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="block" id="embed">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Встраивание одной строкой</h2>
+          <p>Добавьте тег перед закрывающим <code>&lt;/body&gt;</code> (в шаблоне Bitrix это <code>footer.php</code>). Виджет изолирован в Shadow DOM и не влияет на стили сайта.</p>
+        </div>
+        <div class="embed">
+          <div>
+            <div class="code">
+              <button class="copy" type="button" id="copy">Копировать</button>
+              <pre id="snippet"></pre>
+            </div>
+            <p class="hint">Программное управление: <code>EKTConsultant.open()</code>, <code>EKTConsultant.close()</code>, <code>EKTConsultant.ask("вопрос")</code>.</p>
+          </div>
+          <table class="attrs">
+            <thead><tr><th scope="col">Атрибут</th><th scope="col">Назначение</th></tr></thead>
+            <tbody>
+              <tr><td><code>data-api</code></td><td>Адрес функции чата (обязательно)</td></tr>
+              <tr><td><code>data-title</code></td><td>Заголовок окна, по умолчанию «Консультант EKT»</td></tr>
+              <tr><td><code>data-color</code></td><td>Цвет акцента, например <code>#2c7294</code></td></tr>
+              <tr><td><code>data-position</code></td><td><code>right</code> или <code>left</code></td></tr>
+              <tr><td><code>data-open</code></td><td><code>true</code>: открыть чат сразу</td></tr>
+              <tr><td><code>data-lang</code></td><td><code>ru</code>, <code>kk</code> или <code>en</code>; по умолчанию язык страницы</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Честно о границах</h2>
+        </div>
+        <ul class="limits">
+          <li>Цены указаны для Алматы и актуальны на дату последнего обновления каталога.</li>
+          <li>Наличие на складе консультант не обещает: его стоит уточнить у менеджера филиала.</li>
+          <li>Для проектных решений и монтажа консультант рекомендует обратиться к специалисту.</li>
+          <li>Это ИИ: он может ошибаться. Под каждым ответом можно поставить оценку, так мы улучшаем качество.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>Демо ИИ-консультанта для <a href="https://ekt.kz/">ekt.kz</a></span>
+      <span>Алматы: <a href="tel:+77273468888">+7 727 346-88-88</a></span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var PLACEHOLDER = 'YOUR-PROJECT.supabase.co';
+      var meta = document.querySelector('meta[name="ekt-api"]');
+      var fromQuery = new URLSearchParams(location.search).get('api');
+      var api = (fromQuery && /^https?:\/\//.test(fromQuery) ? fromQuery : '') || (meta && meta.content) || 'https://YOUR-PROJECT.supabase.co/functions/v1/chat';
+      if (api.indexOf(PLACEHOLDER) !== -1) document.getElementById('api-notice').hidden = false;
+
+      // Embed snippet shown on the page (points at this deployment's widget.js).
+      var src = new URL('widget.js', location.href).href;
+      var snippet = '<script src="' + src + '"\n        data-api="' + api + '"\n        defer><\/script>';
+      var pre = document.getElementById('snippet');
+      pre.textContent = snippet;
+      var copy = document.getElementById('copy');
+      copy.addEventListener('click', function () {
+        var done = function () { copy.textContent = 'Скопировано'; setTimeout(function () { copy.textContent = 'Копировать'; }, 1800); };
+        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(snippet).then(done, fallback);
+        else fallback();
+        function fallback() {
+          var r = document.createRange(); r.selectNodeContents(pre);
+          var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+          try { document.execCommand('copy'); done(); } catch (e) { copy.textContent = 'Нажмите Ctrl+C'; }
+        }
+      });
+
+      // Load the widget exactly as a client site would.
+      var s = document.createElement('script');
+      s.src = 'widget.js';
+      s.defer = true;
+      s.dataset.api = api;
+      document.body.appendChild(s);
+
+      function whenReady(fn) {
+        if (window.EKTConsultant) return fn(window.EKTConsultant);
+        s.addEventListener('load', function () { if (window.EKTConsultant) fn(window.EKTConsultant); });
+      }
+      document.querySelectorAll('[data-ask]').forEach(function (b) {
+        b.addEventListener('click', function () { whenReady(function (c) { c.ask(b.getAttribute('data-ask')); }); });
+      });
+      document.querySelectorAll('[data-open]').forEach(function (b) {
+        b.addEventListener('click', function () { whenReady(function (c) { c.open(); }); });
+      });
+    })();
+  </script>
+</body>
+</html>
