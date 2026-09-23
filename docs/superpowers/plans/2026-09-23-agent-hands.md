@@ -141,3 +141,35 @@ fill ≤ 1, filter ≤ 1, highlight ≤ 3, suggest ≤ 1.
 показывает «Демо: заявление сформировано»), форма заявки `[data-ekt-target="lead_form"]` (в шапке/на контактах),
 поиск `[data-ekt-target="search"]` + `search_submit` (фильтрует витрину), корзина — счётчик в шапке
 (`[data-ekt-target="cart"]`, localStorage), «Купить» (`.btn-cart`) добавляет в демо-корзину, каталог слушает `ekt:filter`.
+
+## РАЗВОРОТ (приоритет выше всего выше): работаем поверх НАСТОЯЩЕГО ekt.kz, без демо-сайтов
+
+Решение пользователя: никаких демо-витрин. Виджет действует на реальном https://ekt.kz.
+Доставка на сайт: (1) расширение Chrome MV3 `extension/` — content script на `https://ekt.kz/*` вставляет
+`<script src=chrome.runtime.getURL("widget.js") data-api=…>` в страницу (main world — доступ к jQuery/Bootstrap
+сайта), переживает переходы между страницами; (2) для продакшена — тот же `<script>` в шаблоне Bitrix.
+ekt.kz: CSP нет, `X-Frame-Options: SAMEORIGIN` (iframe невозможен). CORS функции уже разрешает `https://ekt.kz`.
+
+Реальная разметка ekt.kz (из scraper/test/fixtures/product.html) — контракт целей:
+- `search`: `#search form[action="/catalog/"] input[name="q"]`; `search_submit`: сабмит этой формы (`form.requestSubmit()`/кнопка).
+- `lead_form` («Оставить заявку»): модалка `#zayavka`, форма `.form_zayavka-js`, поля `name, email, phone, question`.
+  Открыть: `jQuery('#zayavka').modal('show')`, иначе клик по `[data-target="#zayavka"], a[href="#zayavka"]`.
+- `buy_one_click` («Купить в 1 клик», на карточке товара): модалка `#buyoneclick`, форма `.form_buyoneclick-js`, поля `name, phone, email`.
+  Открыть: `jQuery('#buyoneclick').modal('show')` / клик `[data-target="#buyoneclick"]`.
+- `buy_button`: `.btn-cart` (add2basket JS сайта); корзина — `/personal/cart/` (добавить в служебные пути navigate).
+- highlight-цели: `price` `.detail_info__price__site`, `buy_button` `.btn-cart`, `characteristics` `.tab_item_chars`,
+  `description` `.detail_tabs__body__item__value:not(.tab_item_chars)`, `return_conditions` `.project-grid .col-md-10, .project-grid`,
+  `payment_methods` `.checkout-and-delivery, .white-bg`, `contacts_phone` `a[href^="tel:"]`, `search` (как выше), `cart` `.bx-basket`.
+
+Изменения контракта:
+- `fill.form` ∈ `lead_form` (поля name, email, phone, question), `buy_one_click` (name, phone, email), `search` (q).
+  `return_form` удалить: возврат на реальном сайте = страница условий `/return/` + заявка через `lead_form` с `question`
+  «Возврат: заказ №…, дата покупки…, товар…, причина…». `fill` для модальных форм сам открывает модалку.
+  Форму НЕ отправлять (кроме `search`: для поиска допустим `click search_submit`).
+- `click.target` ∈ `buy_button`, `search_submit`, `buy_one_click` (открыть модалку), `lead_form` (открыть модалку).
+- `apply_filters` / action `filter` — удалить (у реального сайта умный фильтр Bitrix); подбор по характеристикам =
+  `fill search` + `click search_submit` или переход на категорию + подсветка.
+- `resolveUrl` — identity (демо-маппинг удалить). URL переходов — канонические ekt.kz с `/` на конце.
+- Демо-страницы (`web/public/index.html`-витрина, `product.html`, `return.html`, `payments.html`, `contacts.html`, `demo.js`,
+  `demo.css`, `web/public/data/`) — удалить; `web/public/index.html` вернуть как посадочную (из `about.html`), с инструкцией:
+  установить расширение / букмарклет и открыть ekt.kz.
