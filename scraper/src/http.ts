@@ -1,6 +1,6 @@
 export const USER_AGENT = 'EKT-Consultant-Bot/1.0 (+https://ekt.kz)';
-// сайт отвечает медленно (TTFB 7–30 с), таймаут настраивается SCRAPER_TIMEOUT_MS
-const timeoutMs = () => (Number(process.env.SCRAPER_TIMEOUT_MS) > 0 ? Number(process.env.SCRAPER_TIMEOUT_MS) : 30_000);
+// сайт отвечает медленно (TTFB 7–30 с), таймаут 60 с, настраивается SCRAPER_TIMEOUT_MS
+const timeoutMs = () => (Number(process.env.SCRAPER_TIMEOUT_MS) > 0 ? Number(process.env.SCRAPER_TIMEOUT_MS) : 60_000);
 const RETRIES = 3;
 
 export interface FetchResult {

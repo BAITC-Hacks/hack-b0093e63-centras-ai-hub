@@ -25,7 +25,7 @@ export function normalizeMultiline(s: string): string {
     .replace(SPACE_CHARS, ' ')
     .split('\n')
     .map((l) => l.replace(/[ \t\f\v]+/g, ' ').trim())
-    .map((l) => l.replace(/^[•·●▪◦‣∙]\s*/, '- '));
+    .map((l) => l.replace(/^[•·●▪◦‣∙✓✔]\s*/, '- '));
   const out: string[] = [];
   let bullet = false;
   for (let l of lines) {

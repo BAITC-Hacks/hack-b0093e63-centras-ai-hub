@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { type SupabaseClient, createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { sleep } from './http.js';
 import type { Branch, Category, Page, Product } from './parse/index.js';
 import {
@@ -107,7 +107,13 @@ async function embed(texts: string[]): Promise<number[][]> {
 // Supabase helpers
 // ---------------------------------------------------------------------------
 
-async function selectAll<T>(db: SupabaseClient, table: string, columns: string): Promise<T[]> {
+// все таблицы и RPC консультанта — в схеме ekt (проект Supabase общий с другими приложениями)
+function connect(url: string, key: string) {
+  return createClient(url, key, { db: { schema: 'ekt' }, auth: { persistSession: false, autoRefreshToken: false } });
+}
+type Db = ReturnType<typeof connect>;
+
+async function selectAll<T>(db: Db, table: string, columns: string): Promise<T[]> {
   const out: T[] = [];
   const page = 1000;
   for (let from = 0; ; from += page) {
@@ -120,7 +126,7 @@ async function selectAll<T>(db: SupabaseClient, table: string, columns: string):
 
 /** upsert пачками; при ошибке пачки — построчно, чтобы одна плохая строка не роняла всё. */
 async function upsertBatched(
-  db: SupabaseClient,
+  db: Db,
   table: string,
   rows: object[],
   onConflict: string,
@@ -194,7 +200,7 @@ async function main() {
   if (missing.length) {
     throw new Error(`не заданы переменные окружения: ${missing.join(', ')} (см. .env.example; для загрузки без эмбеддингов — --no-embed)`);
   }
-  const db = createClient(url!, key!, { auth: { persistSession: false, autoRefreshToken: false } });
+  const db = connect(url!, key!);
 
   const run = await db.from('scrape_runs').insert({ status: 'running', stats: { scrape: report.counts } }).select('id').single();
   if (run.error) throw new Error(`scrape_runs: ${run.error.message}`);
@@ -261,6 +267,7 @@ async function main() {
       const pageId = up.data.id as number;
       const del = await db.from('page_chunks').delete().eq('page_id', pageId);
       if (del.error) errors.push(`page_chunks delete ${p.row.url}: ${del.error.message}`);
+      if (!p.chunks.length) continue;
       const ins = await db.from('page_chunks').insert(
         p.chunks.map((c) => ({ page_id: pageId, chunk_index: c.chunk_index, heading: c.heading, content: c.content, content_hash: c.content_hash })),
       );

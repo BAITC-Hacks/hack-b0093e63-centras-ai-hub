@@ -1,5 +1,14 @@
 import type { AnyNode, Element } from 'domhandler';
-import { type CheerioAPI, cleanText, nodeToRawText, nodeToText, normalizeMultiline, textOf, urlPath } from './common.js';
+import {
+  type CheerioAPI,
+  cleanText,
+  nodeToRawText,
+  nodeToText,
+  normalizeMultiline,
+  parseBreadcrumbs,
+  textOf,
+  urlPath,
+} from './common.js';
 
 export type PageKind =
   | 'faq' | 'howto' | 'payment' | 'return' | 'contacts' | 'about'
@@ -40,7 +49,7 @@ const BOILERPLATE = [
   '.breadcrumbs', '.popup', '.modal', '.offcanvas', '.left-sidebar',
   '[class*="select-city"]', '[class*="subscribe"]', '[id*="subscribe"]',
   '.contact-city-nav', '.contacts-map', '.map-left', '.cont_social', '.sales-button',
-  '.pagination', '.bx-pagination', '.share', '.ya-share2', '.social',
+  '.pagination', '.bx-pagination', '.share', '.ya-share2', '.social', '.news-another',
 ].join(',');
 
 const PREFERRED = ['.container.project-grid', '.checkout-and-delivery', '.how-to-make-order', '.white-bg'];
@@ -145,6 +154,9 @@ function collectBlocks($: CheerioAPI, root: Element, out: Block[]): void {
   flushInline();
 }
 
+// Блоки «читайте также» / списки других материалов — не содержание страницы
+const RELATED_HEADING = /^(читайте также|другие (наши )?(работы|новости|статьи|проекты)|похожие|смотрите также|последние новости)/i;
+
 function blocksToSections(input: Block[]): Section[] {
   // «1» / «2.» перед заголовком (нумерованные шаги) — переносим в заголовок
   const blocks: Block[] = [];
@@ -178,7 +190,7 @@ function blocksToSections(input: Block[]): Section[] {
     }
   }
   push();
-  return sections;
+  return sections.filter((sec) => !(sec.heading && RELATED_HEADING.test(sec.heading)));
 }
 
 function parseFaq($: CheerioAPI): Section[] {
@@ -204,10 +216,12 @@ export function sectionsToContent(sections: Section[]): string {
 
 export function parsePage($: CheerioAPI, url: string): Page | null {
   const kind = pageKind(url);
-  const title =
-    cleanText($('h1').first().text()) ||
-    cleanText($('meta[property="og:title"]').attr('content')) ||
-    cleanText($('title').text());
+  const h1 = cleanText($('h1').first().text());
+  let title = h1 || cleanText($('meta[property="og:title"]').attr('content')) || cleanText($('title').text());
+  // общий h1 раздела («Проекты»), а название материала — в последней крошке
+  const crumbs = parseBreadcrumbs($);
+  const last = crumbs[crumbs.length - 1];
+  if (h1 && last && !last.url && last.name !== h1 && crumbs.slice(0, -1).some((c) => c.name === h1)) title = last.name;
 
   let sections = kind === 'faq' ? parseFaq($) : [];
   if (!sections.length) {
