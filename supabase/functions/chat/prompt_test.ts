@@ -56,6 +56,12 @@ Deno.test("buildSystemPrompt: триггер оплаты требует navigat
   assertStringIncludes(p, "переход без подсветки не считается выполненным триггером");
 });
 
+Deno.test("buildSystemPrompt: fill_form открывает модалку сама — отдельный click_element не нужен, если данные уже есть", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "click_element для открытия модалки НЕ нужен");
+  assertStringIncludes(p, "fill_form открывает её сам");
+});
+
 Deno.test("buildSystemPrompt: page_url и city попадают в контекст", () => {
   const p = buildSystemPrompt({ pageUrl: "https://ekt.kz/catalog/lampy/x/", city: "Алматы" });
   assertStringIncludes(p, "https://ekt.kz/catalog/lampy/x/");

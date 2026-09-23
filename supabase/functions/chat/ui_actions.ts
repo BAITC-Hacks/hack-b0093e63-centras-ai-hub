@@ -369,6 +369,17 @@ function defaultHighlightTarget(url: string, productUrls: Iterable<string>): Tar
  * Если у navigate.url есть цель по умолчанию (см. `defaultHighlightTarget`; для этого функции
  * нужны `productUrls` — url карточек товаров этого диалога, из ProductCard[].url), она
  * добавляется. Модель может по-прежнему прислать свой highlight — тогда ничего не добавляется.
+ *
+ * Приоритет 1: если в ходе есть navigate, любые fill(form="search")/click(target="search_submit")
+ * (в т.ч. явно присланные моделью) отбрасываются — иначе виджет отложит их до загрузки страницы
+ * назначения и выполнит поиск уже НА НЕЙ (например на карточке товара, куда шёл navigate),
+ * немедленно уведя с неё клиента. Отбрасывание происходит до автодобавления 1, так что
+ * search_submit не будет добавлен повторно.
+ *
+ * Приоритет 2: click(target=X), где X — форма-модалка (lead_form/buy_one_click), отбрасывается,
+ * если в этом же ходе есть fill(form=X) — fill сам открывает нужную модалку (см. виджет), а
+ * отдельный click создаёт гонку между «открыть кликом» и «открыть заполнением». click без
+ * сопутствующего fill той же формы остаётся — это законный способ просто открыть модалку.
  */
 export function collectTurnActions(
   actions: UiAction[],
@@ -398,11 +409,29 @@ export function collectTurnActions(
     if (keptTargets.has(target)) keepIndices.add(idx);
   }
 
-  const result = actions
+  let result = actions
     .map((a, i) => ({ a, i }))
     .filter(({ i }) => keepIndices.has(i))
     .sort((x, y) => x.i - y.i)
     .map(({ a }) => a);
+
+  // click(target=X) не нужен, если в этом же ходе есть fill(form=X) той же формы (X ∈ lead_form,
+  // buy_one_click) — fill сам открывает модалку (см. виджет), отдельный click создавал бы гонку
+  // (что раньше — открытие модалки нажатием или открытие модалки при заполнении). click(target=X)
+  // без fill(form=X) остаётся — так можно просто открыть модалку, не заполняя её сразу.
+  const fillForms = new Set<string>(result.filter((a) => a.type === "fill").map((a) => (a as FillAction).form));
+  result = result.filter((a) => !(a.type === "click" && fillForms.has(a.target)));
+
+  // navigate выигрывает у поиска на сайте в этом же ходе: виджет откладывает остальные действия
+  // хода до загрузки страницы назначения, так что fill(search)+click(search_submit) выполнились
+  // бы уже НА КАРТОЧКЕ ТОВАРА и сразу увели бы клиента с неё поиском. Убираем оба (и явно
+  // присланные моделью, и до авто-добавления search_submit ниже — раз fill(search) уже нет, оно
+  // не сработает).
+  if (result.some((a) => a.type === "navigate")) {
+    result = result.filter((a) =>
+      !(a.type === "fill" && a.form === "search") && !(a.type === "click" && a.target === "search_submit")
+    );
+  }
 
   const fillSearchIdx = result.findIndex((a) => a.type === "fill" && a.form === "search");
   const hasClick = result.some((a) => a.type === "click");

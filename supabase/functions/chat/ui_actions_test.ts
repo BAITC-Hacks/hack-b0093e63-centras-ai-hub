@@ -461,3 +461,46 @@ Deno.test("collectTurnActions: без navigate — автодобавление 
   const out = collectTurnActions([{ type: "click", target: "buy_button", label: "Добавляю" }]);
   assertEquals(out.some((a) => a.type === "highlight"), false);
 });
+
+// ---------------------------------------------------------------------------
+// collectTurnActions — click(target=X) избыточен и отбрасывается, если в ходе есть fill(form=X)
+// той же формы (fill сам открывает модалку — отдельный click создавал бы гонку).
+// ---------------------------------------------------------------------------
+
+const fillLead = (label = "Заполняю заявку"): UiAction => ({
+  type: "fill",
+  form: "lead_form",
+  fields: { name: "Иван" },
+  label,
+});
+
+Deno.test("collectTurnActions: click(lead_form) + fill(form=lead_form) — click отбрасывается", () => {
+  const out = collectTurnActions([
+    { type: "click", target: "lead_form", label: "Открываю форму" },
+    fillLead(),
+  ]);
+  assertEquals(out.map((a) => a.type), ["fill"]);
+});
+
+Deno.test("collectTurnActions: click(buy_one_click) + fill(form=buy_one_click) — click отбрасывается", () => {
+  const out = collectTurnActions([
+    { type: "click", target: "buy_one_click", label: "Открываю модалку" },
+    { type: "fill", form: "buy_one_click", fields: { name: "Иван", phone: "+77012345678" }, label: "Заполняю" },
+  ]);
+  assertEquals(out.map((a) => a.type), ["fill"]);
+});
+
+Deno.test("collectTurnActions: click(lead_form) БЕЗ fill той же формы — остаётся (просто открыть модалку — ок)", () => {
+  const out = collectTurnActions([{ type: "click", target: "lead_form", label: "Открываю форму заявки" }]);
+  assertEquals(out.map((a) => a.type), ["click"]);
+});
+
+Deno.test("collectTurnActions: click(buy_button) + fill(lead_form) — click(buy_button) не трогается (другая цель)", () => {
+  const out = collectTurnActions([
+    { type: "click", target: "buy_button", label: "Добавляю в корзину" },
+    fillLead(),
+  ]);
+  assertEquals(out.map((a) => a.type).sort(), ["click", "fill"]);
+  const click = out.find((a) => a.type === "click") as { target: string };
+  assertEquals(click.target, "buy_button");
+});

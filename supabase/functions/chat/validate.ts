@@ -31,7 +31,7 @@ const PRICE_RE = /(?<![\d.,])(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s
 const CLAIMED_ACTION_RULES: { re: RegExp; type: string }[] = [
   { re: /добав\S*[^.!?\n]*?в\s+корзин\S*/iu, type: "click" },
   { re: /открыва\S*[^.!?\n]*?(карточк\S*|страниц\S*)/iu, type: "navigate" },
-  { re: /заполня\S*[^.!?\n]*?(форм\S*|заявлени\S*)/iu, type: "fill" },
+  { re: /заполня\S*[^.!?\n]*?(форм\S*|заявлени\S*|данн\S*|информаци\S*)/iu, type: "fill" },
   { re: /применя\S*[^.!?\n]*?фильтр\S*/iu, type: "filter" },
   { re: /перехож\S*/iu, type: "navigate" },
 ];

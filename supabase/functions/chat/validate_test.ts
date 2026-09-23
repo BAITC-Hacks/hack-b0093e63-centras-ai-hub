@@ -215,6 +215,21 @@ Deno.test("detectClaimedActionTypes: находит заявления о дей
   assertEquals(detectClaimedActionTypes("Уточните, пожалуйста, город."), new Set());
 });
 
+Deno.test("detectClaimedActionTypes: «заполняю ваши данные» (без слова форма/заявление) — тоже fill", () => {
+  assertEquals(detectClaimedActionTypes("Заполняю ваши данные…"), new Set(["fill"]));
+  assertEquals(detectClaimedActionTypes("Заполняю вашу информацию для заявки."), new Set(["fill"]));
+});
+
+Deno.test("validateAnswer: «заполняю ваши данные» без fill в actionTypes — флаг claimed_action_without_tool", () => {
+  const flags = validateAnswer({
+    answer: "Заполняю ваши данные…",
+    toolData: [],
+    toolCalled: true,
+    actionTypes: ["click"], // click(target=lead_form) есть, а fill — нет
+  });
+  assertEquals(flags.claimed_action_without_tool, ["fill"]);
+});
+
 Deno.test("validateAnswer: заявленное действие без action — флаг claimed_action_without_tool", () => {
   const flags = validateAnswer({
     answer: "Добавляю лампочку в корзину…",
