@@ -391,6 +391,7 @@ function mount(cfg: Config): EKTConsultantAPI {
     }
     // Assistant: rebuild everything after the sr-only label (cheap, messages are short).
     while (row.childNodes.length > 1) row.removeChild(row.lastChild as Node);
+    row.setAttribute('aria-busy', String(m.status === 'streaming'));
 
     if (m.status === 'error') {
       const b = h('div', { class: 'bubble err' });
@@ -834,7 +835,9 @@ function mount(cfg: Config): EKTConsultantAPI {
 }
 
 function boot() {
-  if (window.EKTConsultant) return;
+  // Top window only: ekt.kz creates same-origin about:blank iframes; a widget there would share
+  // storage with the page (swallow queued actions, overwrite the saved chat on unload).
+  if (window.EKTConsultant || window.top !== window.self) return;
   const cfg = readConfig();
   if (!cfg) return;
   const start = () => {

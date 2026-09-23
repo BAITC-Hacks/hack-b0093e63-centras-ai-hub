@@ -316,6 +316,26 @@ describe('navigate', () => {
 /* ── deferred queue ──────────────────────────────────────── */
 
 describe('deferred actions survive the page load', () => {
+  it('order: the queue is in sessionStorage before the plate shows and when location.assign runs', async () => {
+    vi.useFakeTimers();
+    const seen: string[] = [];
+    const assign = vi.fn(() => seen.push('assign:' + (sessionStorage.getItem(PENDING_KEY) ? 'queued' : 'EMPTY')));
+    const run = runActions([{ type: 'navigate', url: 'https://ekt.kz/payments/' }, { type: 'highlight', target: 'payment_methods' }], { t, assign });
+    // synchronously, before any timer: queue first, then the plate
+    seen.push('plate:' + (plateEl() ? 'shown' : 'none') + ',queue:' + (sessionStorage.getItem(PENDING_KEY) ? 'queued' : 'EMPTY'));
+    await vi.advanceTimersByTimeAsync(NAV_MS + 50);
+    await run;
+    expect(seen).toEqual(['plate:shown,queue:queued', 'assign:queued']);
+  });
+
+  it('a same-origin frame (other page key) does not swallow the queue meant for the destination page', () => {
+    savePending(pageKey('https://ekt.kz/payments/'), [{ type: 'highlight', target: 'payment_methods' }]);
+    expect(takePending('about:blank')).toEqual([]); // e.g. an about:blank iframe of ekt.kz
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+    expect(takePending(pageKey('https://ekt.kz/payments/'))).toEqual([{ type: 'highlight', target: 'payment_methods' }]);
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+
   it('runs queued highlights on the destination page (fresh module = reloaded page)', async () => {
     savePending(pageKey(location.href), [{ type: 'highlight', target: 'price', note: 'Цена' }]);
     vi.resetModules();

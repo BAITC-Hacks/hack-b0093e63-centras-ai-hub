@@ -120,16 +120,28 @@ export function savePending<T>(page: string, actions: T[], now = Date.now()): vo
   }
 }
 
-/** Read and remove the queue. Returns actions only if they are fresh and meant for `page`. */
+/**
+ * Take the queue if it is meant for `page` (it is removed then). A queue for another page is left
+ * alone — sessionStorage is shared with same-origin frames (about:blank iframes of ekt.kz), and a
+ * frame must not swallow the actions of the page the shopper is going to. Stale or broken → removed.
+ */
 export function takePending<T>(page: string, now = Date.now()): T[] {
   const s = session();
   try {
     const raw = s?.getItem(PENDING_KEY);
     if (!raw) return [];
+    let data: Pending<T> | null = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      /* broken */
+    }
+    if (!data || data.v !== 1 || !Array.isArray(data.actions) || now - data.at > PENDING_TTL_MS) {
+      s!.removeItem(PENDING_KEY);
+      return [];
+    }
+    if (data.page !== page) return [];
     s!.removeItem(PENDING_KEY);
-    const data = JSON.parse(raw) as Pending<T>;
-    if (!data || data.v !== 1 || !Array.isArray(data.actions)) return [];
-    if (now - data.at > PENDING_TTL_MS || data.page !== page) return [];
     return data.actions;
   } catch {
     return [];

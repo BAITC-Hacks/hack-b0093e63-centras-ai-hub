@@ -125,6 +125,30 @@ describe('widget × actions', () => {
     expect(buy).not.toHaveBeenCalled();
   });
 
+  it('product cards of a reply that navigates: rendered before the plate, saved with the message for the next page', async () => {
+    const item = { id: 20094, name: 'LED ЛАМПА A60 10W E27 MEGALIGHT', url: 'https://ekt.kz/catalog/svetilniki_lampy/lampy/prochie/led_lampa_a60/', price_site: 281 };
+    nextStream = sse([
+      ['delta', { text: 'Самая дешёвая — эта лампа.' }],
+      ['products', { items: [item] }],
+      ['action', { type: 'navigate', url: item.url, label: 'Открываю карточку товара' }],
+      ['action', { type: 'highlight', target: 'price', note: 'Цена' }],
+      ['done', { message_id: 7 }],
+    ]);
+    const n = shadow().querySelectorAll('.fb').length;
+    window.EKTConsultant!.ask('Открой самую дешёвую');
+    await vi.waitFor(() => expect(overlay()?.querySelector('.plate')).not.toBeNull(), { timeout: 3000 });
+    const rows = shadow().querySelectorAll('.row.assistant');
+    const last = rows[rows.length - 1];
+    expect(shadow().querySelectorAll('.fb').length).toBe(n + 1);
+    expect(last.getAttribute('aria-busy')).toBe('false');
+    expect(last.querySelector('.products .card a.pname')?.getAttribute('href')).toBe(item.url);
+    const key = Object.keys(localStorage).find((k) => k.startsWith('ekt-consultant:v1:'))!;
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    expect(saved.messages[saved.messages.length - 1].products).toEqual([item]);
+    expect(JSON.parse(sessionStorage.getItem(PENDING_KEY)!).actions).toEqual([{ type: 'highlight', target: 'price', note: 'Цена' }]);
+    overlay()!.querySelector<HTMLButtonElement>('.plate button')!.click();
+  });
+
   it('navigate from the stream: plate with «Отмена», the rest queued for the next page; cancel keeps the page', async () => {
     nextStream = sse([
       ['delta', { text: 'Открываю условия возврата.' }],
