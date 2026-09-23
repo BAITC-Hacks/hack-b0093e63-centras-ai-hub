@@ -1,33 +1,39 @@
 -- EKT AI-консультант: схема данных каталога, базы знаний, чатов и заявок.
 -- Все таблицы закрыты RLS без политик для anon/authenticated: доступ только через
 -- Edge Function (service role) и Supabase Studio.
+--
+-- Всё живёт в отдельной схеме `ekt`, чтобы не пересекаться с другими приложениями
+-- в том же проекте Supabase. Расширения ищутся через search_path (pgvector может
+-- быть установлен как в `extensions`, так и в `public`).
 
 create extension if not exists vector with schema extensions;
 create extension if not exists pg_trgm with schema extensions;
-create extension if not exists unaccent with schema extensions;
+
+create schema if not exists ekt;
+set search_path = ekt, public, extensions;
 
 -- ---------------------------------------------------------------------------
 -- Каталог
 -- ---------------------------------------------------------------------------
 
-create table public.categories (
+create table ekt.categories (
   url         text primary key,                 -- https://ekt.kz/catalog/.../
   name        text not null,
-  parent_url  text references public.categories (url) on delete set null deferrable initially deferred,
+  parent_url  text references ekt.categories (url) on delete set null deferrable initially deferred,
   path        text[] not null default '{}',     -- названия от корня: {Светильники / Лампы, Лампы}
   depth       int not null default 0,
   product_count int not null default 0,
   updated_at  timestamptz not null default now()
 );
-create index categories_parent_idx on public.categories (parent_url);
+create index categories_parent_idx on ekt.categories (parent_url);
 
-create table public.products (
+create table ekt.products (
   id             bigint primary key,            -- Bitrix ID (data-id кнопки «Купить»)
   sku            text,                          -- «Артикул»
   supplier_sku   text,                          -- «Артикул поставщика»
   name           text not null,
   url            text not null unique,
-  category_url   text references public.categories (url) on delete set null,
+  category_url   text references ekt.categories (url) on delete set null,
   category_path  text[] not null default '{}',
   brand          text,                          -- «Торговая марка»
   price_site     numeric(14, 2),                -- «Цена на сайте», ₸
@@ -41,7 +47,7 @@ create table public.products (
   attrs          jsonb not null default '{}'::jsonb, -- {"Мощность": "10", "Тип цоколя": "E27", ...}
   search_text    text not null default '',
   fts            tsvector generated always as (to_tsvector('russian', search_text)) stored,
-  embedding      extensions.vector(1536),
+  embedding      vector(1536),
   content_hash   text not null,
   embedded_hash  text,
   is_active      boolean not null default true,
@@ -49,22 +55,22 @@ create table public.products (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
-create index products_fts_idx       on public.products using gin (fts);
-create index products_name_trgm_idx on public.products using gin (lower(name) extensions.gin_trgm_ops);
-create index products_sku_idx       on public.products (lower(sku));
-create index products_supplier_sku_idx on public.products (lower(supplier_sku));
-create index products_attrs_idx     on public.products using gin (attrs jsonb_path_ops);
-create index products_brand_idx     on public.products (lower(brand));
-create index products_category_idx  on public.products (category_url);
-create index products_price_idx     on public.products (price_site);
-create index products_embedding_idx on public.products
-  using hnsw (embedding extensions.vector_cosine_ops);
+create index products_fts_idx       on ekt.products using gin (fts);
+create index products_name_trgm_idx on ekt.products using gin (lower(name) gin_trgm_ops);
+create index products_sku_idx       on ekt.products (lower(sku));
+create index products_supplier_sku_idx on ekt.products (lower(supplier_sku));
+create index products_attrs_idx     on ekt.products using gin (attrs jsonb_path_ops);
+create index products_brand_idx     on ekt.products (lower(brand));
+create index products_category_idx  on ekt.products (category_url);
+create index products_price_idx     on ekt.products (price_site);
+create index products_embedding_idx on ekt.products
+  using hnsw (embedding vector_cosine_ops);
 
 -- ---------------------------------------------------------------------------
 -- База знаний (FAQ, условия, о компании, статьи, новости)
 -- ---------------------------------------------------------------------------
 
-create table public.pages (
+create table ekt.pages (
   id           bigserial primary key,
   url          text not null unique,
   kind         text not null,   -- faq|howto|payment|return|contacts|about|production|article|tech|news|other
@@ -74,23 +80,23 @@ create table public.pages (
   scraped_at   timestamptz not null default now()
 );
 
-create table public.page_chunks (
+create table ekt.page_chunks (
   id            bigserial primary key,
-  page_id       bigint not null references public.pages (id) on delete cascade,
+  page_id       bigint not null references ekt.pages (id) on delete cascade,
   chunk_index   int not null,
   heading       text,
   content       text not null,
   fts           tsvector generated always as
                   (to_tsvector('russian', coalesce(heading, '') || ' ' || content)) stored,
-  embedding     extensions.vector(1536),
+  embedding     vector(1536),
   content_hash  text not null,
   unique (page_id, chunk_index)
 );
-create index page_chunks_fts_idx on public.page_chunks using gin (fts);
-create index page_chunks_embedding_idx on public.page_chunks
-  using hnsw (embedding extensions.vector_cosine_ops);
+create index page_chunks_fts_idx on ekt.page_chunks using gin (fts);
+create index page_chunks_embedding_idx on ekt.page_chunks
+  using hnsw (embedding vector_cosine_ops);
 
-create table public.branches (
+create table ekt.branches (
   city_slug  text primary key,       -- almaty, astana, ...
   city       text not null,          -- Алматы
   address    text,
@@ -105,7 +111,7 @@ create table public.branches (
 -- Диалоги, заявки, обратная связь, журнал обновлений
 -- ---------------------------------------------------------------------------
 
-create table public.chat_sessions (
+create table ekt.chat_sessions (
   id            uuid primary key default gen_random_uuid(),
   created_at    timestamptz not null default now(),
   last_seen_at  timestamptz not null default now(),
@@ -116,9 +122,9 @@ create table public.chat_sessions (
   message_count int not null default 0
 );
 
-create table public.chat_messages (
+create table ekt.chat_messages (
   id           bigserial primary key,
-  session_id   uuid not null references public.chat_sessions (id) on delete cascade,
+  session_id   uuid not null references ekt.chat_sessions (id) on delete cascade,
   role         text not null check (role in ('user', 'assistant')),
   content      text not null,
   tool_calls   jsonb,               -- [{name, arguments}]
@@ -131,12 +137,12 @@ create table public.chat_messages (
   ip_hash      text,
   created_at   timestamptz not null default now()
 );
-create index chat_messages_session_idx on public.chat_messages (session_id, created_at);
-create index chat_messages_ip_idx on public.chat_messages (ip_hash, created_at);
+create index chat_messages_session_idx on ekt.chat_messages (session_id, created_at);
+create index chat_messages_ip_idx on ekt.chat_messages (ip_hash, created_at);
 
-create table public.leads (
+create table ekt.leads (
   id          bigserial primary key,
-  session_id  uuid references public.chat_sessions (id) on delete set null,
+  session_id  uuid references ekt.chat_sessions (id) on delete set null,
   name        text,
   phone       text not null,
   email       text,
@@ -146,19 +152,19 @@ create table public.leads (
   status      text not null default 'new' check (status in ('new', 'in_progress', 'done', 'spam')),
   created_at  timestamptz not null default now()
 );
-create index leads_status_idx on public.leads (status, created_at desc);
+create index leads_status_idx on ekt.leads (status, created_at desc);
 
-create table public.feedback (
+create table ekt.feedback (
   id          bigserial primary key,
-  message_id  bigint references public.chat_messages (id) on delete cascade,
-  session_id  uuid references public.chat_sessions (id) on delete cascade,
+  message_id  bigint references ekt.chat_messages (id) on delete cascade,
+  session_id  uuid references ekt.chat_sessions (id) on delete cascade,
   rating      smallint not null check (rating in (-1, 1)),
   comment     text,
   created_at  timestamptz not null default now(),
   unique (message_id)
 );
 
-create table public.scrape_runs (
+create table ekt.scrape_runs (
   id          bigserial primary key,
   started_at  timestamptz not null default now(),
   finished_at timestamptz,
@@ -167,16 +173,16 @@ create table public.scrape_runs (
   error       text
 );
 
-alter table public.categories    enable row level security;
-alter table public.products      enable row level security;
-alter table public.pages         enable row level security;
-alter table public.page_chunks   enable row level security;
-alter table public.branches      enable row level security;
-alter table public.chat_sessions enable row level security;
-alter table public.chat_messages enable row level security;
-alter table public.leads         enable row level security;
-alter table public.feedback      enable row level security;
-alter table public.scrape_runs   enable row level security;
+alter table ekt.categories    enable row level security;
+alter table ekt.products      enable row level security;
+alter table ekt.pages         enable row level security;
+alter table ekt.page_chunks   enable row level security;
+alter table ekt.branches      enable row level security;
+alter table ekt.chat_sessions enable row level security;
+alter table ekt.chat_messages enable row level security;
+alter table ekt.leads         enable row level security;
+alter table ekt.feedback      enable row level security;
+alter table ekt.scrape_runs   enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- Поиск
@@ -185,9 +191,9 @@ alter table public.scrape_runs   enable row level security;
 -- Гибридный поиск товаров: артикул → полнотекст → триграммы → вектор, слияние RRF.
 -- Фильтры применяются до ранжирования. attrs: {"Тип цоколя": "E27"} — регистронезависимое
 -- совпадение значения (подстрока), чтобы «10» находило «10», а «e27» — «E27».
-create or replace function public.search_products(
+create or replace function ekt.search_products(
   q            text,
-  q_embedding  extensions.vector(1536) default null,
+  q_embedding  vector(1536) default null,
   p_brand      text default null,
   p_category   text default null,      -- часть названия категории или URL
   p_price_min  numeric default null,
@@ -201,7 +207,7 @@ returns table (
   attrs jsonb, score double precision
 )
 language sql stable
-set search_path = public, extensions
+set search_path = ekt, public, extensions
 as $$
   with filtered as (
     select p.*
@@ -273,15 +279,15 @@ as $$
 $$;
 
 -- Гибридный поиск по базе знаний.
-create or replace function public.search_chunks(
+create or replace function ekt.search_chunks(
   q           text,
-  q_embedding extensions.vector(1536) default null,
+  q_embedding vector(1536) default null,
   p_kinds     text[] default null,
   p_limit     int default 6
 )
 returns table (id bigint, url text, title text, kind text, heading text, content text, score double precision)
 language sql stable
-set search_path = public, extensions
+set search_path = ekt, public, extensions
 as $$
   with filtered as (
     select c.*, pg.url, pg.title, pg.kind
@@ -311,10 +317,10 @@ as $$
 $$;
 
 -- Какие характеристики встречаются у товаров категории (подсказка модели для фильтров).
-create or replace function public.category_facets(p_category text, p_limit int default 12)
+create or replace function ekt.category_facets(p_category text, p_limit int default 12)
 returns table (key text, values text[], products int)
 language sql stable
-set search_path = public
+set search_path = ekt, public, extensions
 as $$
   with scoped as (
     select p.attrs from products p
@@ -340,10 +346,10 @@ as $$
   order by k.products desc;
 $$;
 
-create or replace function public.list_categories(p_parent_url text default null)
+create or replace function ekt.list_categories(p_parent_url text default null)
 returns table (url text, name text, depth int, product_count int, has_children boolean)
 language sql stable
-set search_path = public
+set search_path = ekt, public, extensions
 as $$
   select c.url, c.name, c.depth, c.product_count,
          exists (select 1 from categories ch where ch.parent_url = c.url)
@@ -354,10 +360,10 @@ as $$
 $$;
 
 -- Пересчёт числа товаров в категориях (с учётом вложенных) — вызывается ingest'ом.
-create or replace function public.refresh_category_counts()
+create or replace function ekt.refresh_category_counts()
 returns void
 language sql
-set search_path = public
+set search_path = ekt, public, extensions
 as $$
   update categories c set product_count = coalesce(x.n, 0), updated_at = now()
   from (
@@ -370,10 +376,10 @@ as $$
 $$;
 
 -- Rate-limit: число сообщений пользователя за последнюю минуту по сессии и IP.
-create or replace function public.recent_message_counts(p_session uuid, p_ip_hash text)
+create or replace function ekt.recent_message_counts(p_session uuid, p_ip_hash text)
 returns table (by_session int, by_ip int)
 language sql stable
-set search_path = public
+set search_path = ekt, public, extensions
 as $$
   select
     (select count(*)::int from chat_messages
@@ -382,4 +388,14 @@ as $$
       where ip_hash = p_ip_hash and role = 'user' and created_at > now() - interval '1 minute');
 $$;
 
-revoke execute on all functions in schema public from anon, authenticated;
+-- Доступ: только service_role (Edge Function, ingest). anon/authenticated — никакого.
+revoke all on schema ekt from anon, authenticated;
+revoke all on all tables in schema ekt from anon, authenticated;
+revoke execute on all functions in schema ekt from anon, authenticated, public;
+grant usage on schema ekt to service_role;
+grant all on all tables in schema ekt to service_role;
+grant all on all sequences in schema ekt to service_role;
+grant execute on all functions in schema ekt to service_role;
+alter default privileges in schema ekt grant all on tables to service_role;
+alter default privileges in schema ekt grant all on sequences to service_role;
+alter default privileges in schema ekt grant execute on functions to service_role;

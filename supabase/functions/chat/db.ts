@@ -3,7 +3,11 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import type { Config } from "./config.ts";
 
-export type Db = SupabaseClient;
+// deno-lint-ignore no-explicit-any
+export type Db = SupabaseClient<any, any, any>;
+
+/** Все таблицы и RPC консультанта живут в отдельной схеме (см. миграцию). */
+export const DB_SCHEMA = "ekt";
 
 let client: Db | null = null;
 
@@ -13,6 +17,7 @@ export function getDb(cfg: Config): Db {
       throw new Error("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set");
     }
     client = createClient(cfg.supabaseUrl, cfg.serviceRoleKey, {
+      db: { schema: DB_SCHEMA },
       auth: { persistSession: false, autoRefreshToken: false },
     });
   }
