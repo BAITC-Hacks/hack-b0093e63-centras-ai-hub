@@ -36,7 +36,6 @@ export interface Strings {
   disclaimer: string;
   you: string;
   assistant: string;
-  newReply: string;
   cancel: string;
   going: string;
   openEkt: string;
@@ -82,7 +81,6 @@ const ru: Strings = {
   disclaimer: 'Цены для Алматы. Консультант — ИИ, может ошибаться; уточняйте у менеджера.',
   you: 'Вы',
   assistant: 'Консультант',
-  newReply: 'Новый ответ консультанта',
   cancel: 'Отмена',
   going: 'Перехожу',
   openEkt: 'Открыть на ekt.kz',
@@ -126,7 +124,6 @@ const kk: Strings = {
   disclaimer: 'Бағалар Алматы үшін. Кеңесші — ЖИ, қателесуі мүмкін; менеджерден нақтылаңыз.',
   you: 'Сіз',
   assistant: 'Кеңесші',
-  newReply: 'Кеңесшіден жаңа жауап',
   cancel: 'Болдырмау',
   going: 'Өтіп жатырмын',
   openEkt: 'ekt.kz сайтында ашу',
@@ -170,7 +167,6 @@ const en: Strings = {
   disclaimer: 'Prices for Almaty. The assistant is an AI and can make mistakes; please confirm with a manager.',
   you: 'You',
   assistant: 'Assistant',
-  newReply: 'New reply from the assistant',
   cancel: 'Cancel',
   going: 'Opening',
   openEkt: 'Open on ekt.kz',

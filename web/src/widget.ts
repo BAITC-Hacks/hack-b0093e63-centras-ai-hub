@@ -8,7 +8,7 @@
  * Public API: window.EKTConsultant.open() / .close() / .ask(text)
  * UI actions (SSE `action`: navigate/highlight/click/fill/suggest on ekt.kz): see actions.ts.
  */
-import { parseAction, resumePending, runActions, type ActionEnv, type UIAction } from './actions';
+import { cancelActions, parseAction, resumePending, runActions, type ActionEnv, type UIAction } from './actions';
 import { icons } from './icons';
 import { detectLang, strings, type Strings } from './i18n';
 import { renderMarkdown } from './markdown';
@@ -495,6 +495,7 @@ function mount(cfg: Config): EKTConsultantAPI {
   async function send(text: string, isRetry = false) {
     text = text.trim().slice(0, MAX_LEN);
     if (!text || streaming) return;
+    cancelActions(); // a new question stops the previous reply's pending actions
     if (welcomeRow) welcomeRow.querySelector('.chips')?.remove();
     log.querySelectorAll('.suggest').forEach((el) => el.remove());
 
@@ -657,6 +658,7 @@ function mount(cfg: Config): EKTConsultantAPI {
 
   function newChat() {
     gen++;
+    cancelActions();
     queued = null;
     stop();
     setBusy(false);

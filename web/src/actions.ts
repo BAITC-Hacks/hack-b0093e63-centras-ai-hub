@@ -115,11 +115,11 @@ export function safeNavUrl(raw: unknown): string | null {
   return null;
 }
 
-/** Page identity for the deferred queue: origin + path without `.html`/`index`/trailing slash + query. */
+/** Page identity for the deferred queue: origin without www + path without trailing slash + query. */
 export function pageKey(href: string): string {
   try {
     const u = new URL(href, location.href);
-    const p = u.pathname.replace(/\/index(\.html?)?$/i, '/').replace(/\.html?$/i, '').replace(/\/+$/, '');
+    const p = u.pathname.replace(/\/+$/, '');
     return u.origin.replace('//www.', '//') + (p || '/') + u.search;
   } catch {
     return href;
@@ -176,21 +176,36 @@ function reveal(el: HTMLElement): void {
 }
 
 /**
- * Open an ekt.kz Bootstrap modal. A trigger without analytics (e.g. «Купить в 1 клик» with its
- * data-id) is clicked so the site fills its hidden fields; otherwise the Bootstrap / jQuery API.
+ * Buying controls act only on a product page and only inside its own card (.detail_info):
+ * on a catalog or search page the first .btn-cart would put a different product in the basket.
  */
-async function openModal(sel: string): Promise<HTMLElement | null> {
+const PRODUCT_CONTROLS: Record<string, string> = { buy_button: '.detail_info .btn-cart', buy_one_click: '.detail_info .tqBuyOneClick' };
+function productControl(key: string): HTMLElement | null {
+  return document.querySelector('.detail_info__price__site') ? document.querySelector<HTMLElement>(PRODUCT_CONTROLS[key]) : null;
+}
+
+/** The trigger that opens a modal form: the product card's own one, or a link without analytics (ym goals). */
+function modalTrigger(key: string): HTMLElement | null {
+  if (PRODUCT_CONTROLS[key]) return productControl(key);
+  const sel = MODALS[key];
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>(`[data-bs-target="${sel}"],[data-target="${sel}"]`)).find(
+      (e) => !e.hasAttribute('onclick') && !e.matches('[type="submit"]'),
+    ) || null
+  );
+}
+
+/** Open an ekt.kz Bootstrap modal: click its trigger (the site fills hidden fields) or use the Bootstrap / jQuery API. */
+async function openModal(sel: string, trigger: HTMLElement | null): Promise<HTMLElement | null> {
   const m = document.querySelector<HTMLElement>(sel);
   if (!m) return null;
   const shown = () => (m.classList.contains('show') || m.style.display == 'block' ? m : null);
   if (!shown()) {
-    const q = `[data-bs-target="${sel}"],[data-target="${sel}"],a[href="${sel}"]`;
-    const plain = Array.from(document.querySelectorAll<HTMLElement>(q)).filter((e) => !e.hasAttribute('onclick') && !e.matches('[type="submit"]'));
     const w = window as any;
-    if (plain[0]) plain[0].click();
+    if (trigger) trigger.click();
     else if (w.bootstrap?.Modal?.getOrCreateInstance) w.bootstrap.Modal.getOrCreateInstance(m).show();
     else if (w.jQuery?.fn?.modal) w.jQuery(m).modal('show');
-    else document.querySelector<HTMLElement>(q)?.click();
+    else return null;
     await waitFor(shown, 1500);
   }
   return m;
@@ -201,7 +216,7 @@ export const reducedMotion = (): boolean => !!window.matchMedia?.('(prefers-redu
 /* ── overlay (rings, notes, plate) ───────────────────────── */
 
 const OVERLAY_CSS =
-  ':host{all:initial;font:15px/1.35 "PT Sans",Helvetica,Arial,sans-serif;color:#1c2830}' +
+  ':host{all:initial;font:15px/1.35 "PT Sans",Arial,sans-serif;color:#1c2830}' +
   '.ring,.note,.plate{position:fixed;transition:opacity .3s}' +
   '.ring,.note{z-index:2147482990;pointer-events:none}' +
   '.ring{border:3px solid #f4b301;border-radius:10px;box-shadow:0 0 0 1px #0b436659,0 6px 20px #0b43662e}' +
@@ -358,17 +373,13 @@ export function plate(text: string, t: Pick<Strings, 'cancel'>, ms = PLATE_MS): 
 }
 
 /** Off ekt.kz: a plate with a link that opens the page on ekt.kz in a new tab (no auto-popup). */
-function linkPlate(text: string, href: string, t: Pick<Strings, 'openEkt' | 'close'>): void {
+function linkPlate(text: string, href: string, t: Pick<Strings, 'openEkt'>): void {
   const a = el('a', '', t.openEkt);
   a.href = href;
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
-  const x = el('button', '', '×');
-  x.type = 'button';
-  x.setAttribute('aria-label', t.close);
-  plateShell(text, 12000, a, x);
+  plateShell(text, 12000, a); // hides itself after 12 s or once the link is used
   a.addEventListener('click', () => setTimeout(closePlate));
-  x.addEventListener('click', closePlate);
 }
 
 /* ── forms ───────────────────────────────────────────────── */
@@ -381,7 +392,7 @@ function phoneDigits(v: string): string {
 
 /** Set a text value so the site's scripts notice it (.value + input/change/keyup). */
 export function setFieldValue(field: HTMLElement, value: string): boolean {
-  if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return false;
+  if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field.disabled || field.readOnly) return false;
   // Never touch secrets, files, hidden/service fields (sessid, form_id, utm_*) or buttons.
   if (/^(sessid|form_id|utm_)/.test(field.name) || /^(checkbox|radio|file|hidden|password|submit|button|image|reset)$/.test(field.type)) return false;
   field.value = (field.type == 'tel' || field.classList.contains('phone-mask') ? phoneDigits(value) : value).slice(0, 200);
@@ -404,7 +415,7 @@ export function fillForm(target: HTMLElement, fields: Record<string, string>): n
 /* ── runner ──────────────────────────────────────────────── */
 
 export interface ActionEnv {
-  t: Pick<Strings, 'cancel' | 'going' | 'openEkt' | 'close'>;
+  t: Pick<Strings, 'cancel' | 'going' | 'openEkt'>;
   /** Same-tab navigation (tests replace it). */
   assign?: (url: string) => void;
   /** Called before anything visual happens on the page (the widget closes its full-screen panel on phones). */
@@ -413,28 +424,46 @@ export interface ActionEnv {
   beforeNavigate?: () => void;
 }
 
+/** Generation of the running batch: a newer batch or new input from the shopper stops older actions. */
 let running = 0;
 
-async function runOne(a: UIAction, env: ActionEnv, wait: number, scroll: boolean): Promise<void> {
+/** The shopper typed or started a new conversation: stop pending plates, clicks and queued navigation actions. */
+export function cancelActions(): void {
+  running++;
+  closePlate();
+  clearPending();
+}
+
+async function runOne(a: UIAction, env: ActionEnv, wait: number, scroll: boolean, my: number): Promise<void> {
   if (a.type == 'highlight') {
     const target = await locate(a.target, wait);
     if (target) highlightElement(target, a.note, scroll);
   } else if (a.type == 'click') {
     const modal = MODALS[a.target];
-    const target = modal ? document.querySelector<HTMLElement>(`[data-bs-target="${modal}"],[data-target="${modal}"]`) : await locate(a.target, wait);
-    if ((!target && !modal) || target?.matches('[type="submit"]')) return;
+    const product = !!PRODUCT_CONTROLS[a.target];
+    const target = modal || product ? modalTrigger(a.target) : await locate(a.target, wait);
+    const form = a.target == 'search_submit' ? target?.closest('form') : null;
+    // Buying only from the product card; the search form only if it is the ekt.kz catalog search; never a submit button.
+    if ((product && !target) || (!modal && !target) || target?.matches('[type="submit"]')) return;
+    if (a.target == 'search_submit' && !form?.matches('#search form, form[action^="/catalog/"]')) return;
     if (target) highlightElement(target, undefined, scroll);
-    if (!(await plate(a.label || env.t.going, env.t))) return;
-    if (modal) await openModal(modal);
-    else if (a.target == 'search_submit') {
-      const form = target!.closest('form');
-      if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
-    } else target!.click();
+    const title = product ? (document.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '';
+    const text = a.label || env.t.going;
+    if (!(await plate(title ? `${text}: ${title}` : text, env.t)) || my != running) return;
+    if (modal) await openModal(modal, target);
+    else if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
+    else target!.click();
   } else if (a.type == 'fill') {
     const modal = MODALS[a.form];
-    if (modal) await openModal(modal);
     const target = await locate(a.form, modal ? 1500 : wait);
-    if (target && fillForm(target, a.fields)) highlightElement(target.closest('form') || target, a.label, scroll && !modal);
+    if (modal) {
+      const trigger = modalTrigger(a.form);
+      if (PRODUCT_CONTROLS[a.form] && !trigger) return; // «Купить в 1 клик» only on a product page
+      // Fill first, so the modal opens already filled; fill again after opening in case the site resets it.
+      if (target) fillForm(target, a.fields);
+      await openModal(modal, trigger);
+    }
+    if (my == running && target && fillForm(target, a.fields)) highlightElement(target.closest('form') || target, a.label, scroll && !modal);
   }
 }
 
@@ -448,6 +477,8 @@ export async function runActions(actions: UIAction[], env: ActionEnv, deferred =
   let list = actions.filter((a) => a.type != 'suggest');
   const nav = deferred ? undefined : list.filter((a) => a.type == 'navigate').pop();
   list = list.filter((a) => a.type != 'navigate');
+  // «Open the form» + «fill the form» in one reply: filling opens the modal itself, no extra 2-second plate.
+  list = list.filter((a) => !(a.type == 'click' && MODALS[a.target] && list.some((b) => b.type == 'fill' && b.form == a.target)));
   if (nav && nav.type == 'navigate') {
     const label = nav.label || nav.url;
     if (!onEkt() && new URL(nav.url).origin != location.origin) return linkPlate(label, nav.url, env.t);
@@ -470,7 +501,7 @@ export async function runActions(actions: UIAction[], env: ActionEnv, deferred =
   let scroll = true;
   for (const a of list) {
     if (my != running) return;
-    await runOne(a, env, wait, scroll);
+    await runOne(a, env, wait, scroll, my);
     scroll = false;
   }
 }

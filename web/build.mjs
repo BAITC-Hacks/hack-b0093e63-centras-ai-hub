@@ -14,6 +14,19 @@ const outfile = resolve(here, 'public/widget.js');
 const LIMIT = 50 * 1024;
 const extension = resolve(here, '../extension');
 
+/**
+ * Shorten the widget's internal CSS custom properties (--accent-strong → --c…), most used first.
+ * The public theming hooks --ekt-* (set by data-color) keep their names. Also drops the space
+ * esbuild keeps after "--name:" in declarations.
+ */
+function shortVars(css) {
+  const counts = new Map();
+  for (const [name] of css.matchAll(/--(?!ekt-)[a-z][a-z-]*/g)) counts.set(name, (counts.get(name) || 0) + 1);
+  const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+  const short = new Map(names.map((n, i) => [n, '--' + (i < 26 ? String.fromCharCode(97 + i) : 'v' + i)]));
+  return css.replace(/--(?!ekt-)[a-z][a-z-]*(?![a-z-])/g, (n) => short.get(n) || n).replace(/(--[a-z0-9]+):\s+/g, '$1:');
+}
+
 /** Minify the CSS template in src/styles.ts at build time (esbuild does not touch strings). */
 const minifyCss = {
   name: 'minify-css',
@@ -23,7 +36,7 @@ const minifyCss = {
       const m = /css = \/\* css \*\/ `([\s\S]*)`;/.exec(src);
       if (!m) return undefined;
       const { code } = await esbuild.transform(m[1], { loader: 'css', minify: true });
-      return { contents: `export const css = ${JSON.stringify(code.trim())};`, loader: 'ts' };
+      return { contents: `export const css = ${JSON.stringify(shortVars(code.trim()))};`, loader: 'ts' };
     });
   },
 };

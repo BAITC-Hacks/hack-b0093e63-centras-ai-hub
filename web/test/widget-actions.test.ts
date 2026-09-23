@@ -39,8 +39,11 @@ beforeAll(async () => {
   }) as any;
   (window as any).happyDOM.setURL('https://ekt.kz/catalog/svetilniki_lampy/lampy/x/');
   document.body.innerHTML = `
-    <div class="detail_info__price__site" id="price">391 ₸</div>
-    <button class="btn-cart" id="buy">Купить</button>`;
+    <h1>LED ЛАМПА A60 10W E27</h1>
+    <div class="detail_info">
+      <div class="detail_info__price__site" id="price">391 ₸</div>
+      <a class="btn btn-primary btn-cart" id="buy">Купить</a>
+    </div>`;
   const s = document.createElement('script');
   s.type = 'text/x-inert'; // happy-dom must not try to load it; readConfig only reads the attributes
   s.setAttribute('src', 'widget.js');
@@ -98,6 +101,28 @@ describe('widget × actions', () => {
     const saved = JSON.parse(localStorage.getItem(key)!);
     expect(saved.messages[saved.messages.length - 1].suggest).toEqual(['Да']);
     expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+
+  it('a new question during the «Купить» plate cancels the click', async () => {
+    nextStream = sse([
+      ['delta', { text: 'Добавляю в корзину.' }],
+      ['action', { type: 'click', target: 'buy_button', label: 'Добавляю в корзину' }],
+      ['done', { message_id: 5 }],
+    ]);
+    const buy = vi.fn();
+    document.getElementById('buy')!.addEventListener('click', buy);
+    const before = shadow().querySelectorAll('.fb').length;
+    window.EKTConsultant!.ask('Добавь в корзину');
+    await vi.waitFor(() => expect(overlay()?.querySelector('.plate')?.textContent).toContain('Добавляю в корзину: LED ЛАМПА A60 10W E27'), { timeout: 3000 });
+    nextStream = sse([
+      ['delta', { text: 'Хорошо, не добавляю.' }],
+      ['done', { message_id: 6 }],
+    ]);
+    window.EKTConsultant!.ask('Нет, не надо');
+    expect(overlay()?.querySelector('.plate')).toBeNull();
+    await vi.waitFor(() => expect(shadow().querySelectorAll('.fb').length).toBe(before + 2), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 2300));
+    expect(buy).not.toHaveBeenCalled();
   });
 
   it('navigate from the stream: plate with «Отмена», the rest queued for the next page; cancel keeps the page', async () => {

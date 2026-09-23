@@ -18,6 +18,7 @@ import {
   pageKey,
   parseAction,
   resumePending,
+  cancelActions,
   runActions,
   safeNavUrl,
   setFieldValue,
@@ -37,6 +38,7 @@ const BODY = [
   $.html($('#search')),
   $.html($('.bx-basket').first()),
   '</header>',
+  $.html($('h1').first()),
   $.html($('.product_detail_row')),
   $.html($('.detail_tabs')),
   $.html($('#zayavka')),
@@ -372,9 +374,9 @@ describe('click', () => {
 
   it('can be cancelled', async () => {
     vi.useFakeTimers();
-    document.body.innerHTML = '<a class="btn-cart">Купить</a>';
+    loadProductPage();
     const onClick = vi.fn();
-    document.querySelector('a')!.addEventListener('click', onClick);
+    document.querySelector('.detail_info .btn-cart')!.addEventListener('click', onClick);
     const run = runActions([{ type: 'click', target: 'buy_button' }], { t });
     await vi.advanceTimersByTimeAsync(100);
     plateEl()!.querySelector('button')!.click();
@@ -414,6 +416,124 @@ describe('click', () => {
 });
 
 /* ── fill ────────────────────────────────────────────────── */
+
+/* ── fix round 1: buying only from the product card, cancel on new input ── */
+
+describe('buying is bound to the product card', () => {
+  const CATALOG = `
+    <h1>Лампы</h1>
+    <div class="row">
+      <div class="small_card_catalog"><a class="btn btn-default btn-primary btn-cart" data-id="1">Купить</a>
+        <a class="tqBuyOneClick" data-bs-target="#buyoneclick" data-id="1">Купить в 1 клик</a></div>
+      <div class="small_card_catalog"><a class="btn btn-default btn-primary btn-cart" data-id="2">Купить</a></div>
+    </div>
+    <div class="modal" id="buyoneclick"><form class="form_buyoneclick-js"><input name="name"><input name="phone" class="phone-mask"></form></div>`;
+
+  it('on a catalog / search page click buy_button and buy_one_click are ignored', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = CATALOG;
+    const clicked = vi.fn();
+    document.querySelectorAll('a').forEach((a) => a.addEventListener('click', clicked));
+    const run = runActions([{ type: 'click', target: 'buy_button', label: 'Добавляю в корзину' }, { type: 'click', target: 'buy_one_click' }], { t });
+    await vi.advanceTimersByTimeAsync(PLATE_MS * 3);
+    await run;
+    expect(clicked).not.toHaveBeenCalled();
+    expect(plateEl()).toBeFalsy();
+    expect(rings()).toHaveLength(0);
+  });
+
+  it('on a catalog page fill buy_one_click is ignored too', async () => {
+    document.body.innerHTML = CATALOG;
+    const opened = vi.fn();
+    document.querySelector('.tqBuyOneClick')!.addEventListener('click', opened);
+    await runActions([{ type: 'fill', form: 'buy_one_click', fields: { name: 'Айгерим' } }], { t });
+    expect(opened).not.toHaveBeenCalled();
+    expect((document.querySelector('[name="name"]') as HTMLInputElement).value).toBe('');
+  });
+
+  it('on a product page it clicks the card button (not a .btn-cart elsewhere) and names the product', async () => {
+    vi.useFakeTimers();
+    loadProductPage();
+    document.body.insertAdjacentHTML('afterbegin', '<div class="small_card_catalog"><a class="btn-cart" id="other">Купить</a></div>');
+    const other = vi.fn();
+    const card = vi.fn();
+    document.getElementById('other')!.addEventListener('click', other);
+    document.querySelector('.detail_info .btn-cart')!.addEventListener('click', card);
+    const run = runActions([{ type: 'click', target: 'buy_button', label: 'Добавляю в корзину' }], { t });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(plateEl()?.textContent).toContain('Добавляю в корзину: LED ЛАМПА A60 "Standart" 10W 900Lm 230V 4000K E27 MEGALIGHT (100)');
+    await vi.advanceTimersByTimeAsync(PLATE_MS);
+    await run;
+    expect(card).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it('buy_one_click on a product page clicks the card «Купить в 1 клик» trigger', async () => {
+    vi.useFakeTimers();
+    loadProductPage();
+    const trigger = vi.fn((e: Event) => (e.preventDefault(), document.getElementById('buyoneclick')!.classList.add('show')));
+    document.querySelector('.detail_info .tqBuyOneClick')!.addEventListener('click', trigger);
+    const run = runActions([{ type: 'click', target: 'buy_one_click', label: 'Открываю «Купить в 1 клик»' }], { t });
+    await vi.advanceTimersByTimeAsync(PLATE_MS + 200);
+    await run;
+    expect(trigger).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('«open the form» + «fill the form» in one reply (real backend sends both)', () => {
+  it('skips the extra click plate and opens #zayavka already filled', async () => {
+    loadProductPage();
+    let atOpen: Record<string, string> = {};
+    const show = vi.fn(() => {
+      const f = document.querySelector<HTMLFormElement>('.form_zayavka-js')!;
+      atOpen = { name: (f.elements.namedItem('name') as HTMLInputElement).value, question: (f.elements.namedItem('question') as HTMLTextAreaElement).value };
+      document.getElementById('zayavka')!.classList.add('show');
+    });
+    w.bootstrap = { Modal: { getOrCreateInstance: () => ({ show }) } };
+    const started = Date.now();
+    await runActions(
+      [
+        { type: 'click', target: 'lead_form', label: 'Открываю форму заявки на возврат' },
+        { type: 'fill', form: 'lead_form', fields: { name: 'Тест', phone: '+77010000000', question: 'Возврат: заказ №12345' }, label: 'Заполняю' },
+      ],
+      { t },
+    );
+    expect(Date.now() - started).toBeLessThan(PLATE_MS); // no 2-second plate for the redundant click
+    expect(show).toHaveBeenCalledTimes(1);
+    expect(atOpen).toEqual({ name: 'Тест', question: 'Возврат: заказ №12345' });
+    expect(rings()).toHaveLength(1);
+  });
+});
+
+describe('new input from the shopper cancels pending actions', () => {
+  it('cancelActions() during the plate: no click', async () => {
+    vi.useFakeTimers();
+    loadProductPage();
+    const card = vi.fn();
+    document.querySelector('.detail_info .btn-cart')!.addEventListener('click', card);
+    const run = runActions([{ type: 'click', target: 'buy_button' }], { t });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(plateEl()).not.toBeNull();
+    cancelActions();
+    expect(plateEl()).toBeNull();
+    await vi.advanceTimersByTimeAsync(PLATE_MS * 2);
+    await run;
+    expect(card).not.toHaveBeenCalled();
+  });
+
+  it('cancelActions() during a navigate plate: no navigation, queue dropped', async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    const run = runActions([{ type: 'navigate', url: 'https://ekt.kz/return/' }, { type: 'highlight', target: 'return_conditions' }], { t, assign });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull();
+    cancelActions();
+    await vi.advanceTimersByTimeAsync(PLATE_MS * 2);
+    await run;
+    expect(assign).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+});
 
 describe('fill', () => {
   it('lead_form: opens #zayavka (Bootstrap API), fills name/email/phone/question, never submits', async () => {
@@ -481,6 +601,38 @@ describe('fill', () => {
 /* ── the widget does not trust the server blindly ────────── */
 
 describe('security: client-side validation of actions', () => {
+  it('search_submit submits only the ekt.kz catalog search form', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<form action="/personal/profile/" id="f"><input name="q"></form>';
+    const submitted = vi.fn((e: Event) => e.preventDefault());
+    document.getElementById('f')!.addEventListener('submit', submitted);
+    const run = runActions([{ type: 'click', target: 'search_submit' }], { t });
+    await vi.advanceTimersByTimeAsync(2000 + PLATE_MS * 2);
+    await run;
+    expect(submitted).not.toHaveBeenCalled();
+  });
+
+  it('fill skips disabled and read-only fields', () => {
+    document.body.innerHTML = '<form><input name="name" disabled><input name="email" readonly><input name="phone"></form>';
+    const form = document.querySelector('form')!;
+    expect(fillForm(form, { name: 'a', email: 'e@x.kz', phone: '87011234567' })).toBe(1);
+    expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('');
+    expect((form.elements.namedItem('email') as HTMLInputElement).value).toBe('');
+  });
+
+  it('never clicks modal triggers that carry analytics (onclick) — no API, no modal', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<a href="#" data-bs-target="#zayavka" onclick="return false" id="ym">Оставить заявку</a>
+      <div class="modal" id="zayavka"><form class="form_zayavka-js"><input name="name"></form></div>`;
+    const tracked = vi.fn();
+    document.getElementById('ym')!.addEventListener('click', tracked);
+    const run = runActions([{ type: 'click', target: 'lead_form' }], { t });
+    await vi.advanceTimersByTimeAsync(PLATE_MS + 2000);
+    await run;
+    expect(tracked).not.toHaveBeenCalled();
+    expect(document.getElementById('zayavka')!.classList.contains('show')).toBe(false);
+  });
+
   it('navigate: only https://ekt.kz or www.ekt.kz, no query/fragment/port/credentials/other schemes', () => {
     for (const ok of ['https://ekt.kz/return/', 'https://www.ekt.kz/about/contacts/', 'https://EKT.kz/']) expect(safeNavUrl(ok), ok).not.toBeNull();
     for (const bad of [

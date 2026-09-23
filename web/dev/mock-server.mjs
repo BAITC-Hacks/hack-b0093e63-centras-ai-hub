@@ -44,12 +44,12 @@ const PRODUCTS = [
   },
   {
     id: 103,
-    name: 'Автоматический выключатель ВА47-29 1Р 25А 4,5кА х-ка С IEK',
-    url: 'https://ekt.kz/catalog/avtomaty/va47-29-1p-25a-c-iek/',
-    sku: 'MVA20-1-025-C',
-    brand: 'IEK',
-    price_site: 1450,
-    price_store: 1590,
+    name: 'LED Лампа MR16 «Софит» 7W 6500K GU10 KODAK',
+    url: 'https://ekt.kz/catalog/lampy/led-lampa-mr16-sofit-7w-6500k-gu10-kodak/',
+    sku: '080300254_',
+    brand: 'KODAK',
+    price_site: 870,
+    price_store: 891,
     image_url: 'https://example.invalid/broken.jpg',
   },
 ];
@@ -275,12 +275,12 @@ const SCENARIOS = [
 
 const ANSWERS = [
   {
-    test: /автомат|25\s*а/i,
-    status: [['search_products', 'Ищу автоматы…'], ['get_product', 'Проверяю характеристики…']],
+    test: /gu10|софит|спот/i,
+    status: [['search_products', 'Ищу лампы GU10…'], ['get_product', 'Проверяю характеристики…']],
     text:
-      'Для линии на **25 А** подойдёт однополюсный автомат с характеристикой **C** — стандарт для розеточных групп и освещения.\n\n' +
-      '1. [ВА47-29 1Р 25А 4,5кА х-ка С IEK](https://ekt.kz/catalog/avtomaty/va47-29-1p-25a-c-iek/) — **1 450 ₸** на сайте, арт. `MVA20-1-025-C`.\n\n' +
-      'Сечение кабеля для 25 А — не меньше *2,5 мм² по меди*. Для проекта щита лучше посоветоваться с электриком или менеджером филиала.',
+      'Для точечных светильников с цоколем **GU10** подойдёт светодиодный «софит» MR16 — он заменяет галогенную лампу 50 Вт.\n\n' +
+      '1. [LED Лампа MR16 «Софит» 7W 6500K GU10 KODAK](https://ekt.kz/catalog/lampy/led-lampa-mr16-sofit-7w-6500k-gu10-kodak/) — **870 ₸** на сайте, арт. `080300254_`.\n\n' +
+      'Для спальни лучше выбрать тёплый свет *2700–3000K*; наличие уточните у менеджера филиала.',
     products: [PRODUCTS[2]],
   },
   {
