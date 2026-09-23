@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.env.local
+.env.*.local
+web/public/widget.js
+web/public/widget.js.map
+supabase/.temp/
+supabase/.branches/
+.vercel/
+*.log

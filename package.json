@@ -1,0 +1,35 @@
+{
+  "name": "ekt-ai-consultant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-консультант для ekt.kz: скрапер каталога, Supabase (pgvector), Edge Function чата, встраиваемый виджет",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "scrape": "tsx scraper/src/scrape.ts",
+    "ingest": "tsx scraper/src/ingest.ts",
+    "refresh": "npm run scrape && npm run ingest",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:web": "node web/build.mjs",
+    "dev:web": "node web/build.mjs --watch",
+    "eval": "tsx eval/run.ts",
+    "db:push": "supabase db push",
+    "fn:deploy": "supabase functions deploy chat --no-verify-jwt"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "supabase": "^2.117.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.0",
+    "cheerio": "^1.2.0",
+    "dotenv": "^18.0.3"
+  }
+}
