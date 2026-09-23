@@ -50,6 +50,12 @@ Deno.test("buildSystemPrompt: few-shot примеры реплика → инс�
   assertStringIncludes(p, 'click_element(target="search_submit"');
 });
 
+Deno.test("buildSystemPrompt: триггер оплаты требует navigate И highlight, не только переход", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "ОБЯЗАТЕЛЬНО");
+  assertStringIncludes(p, "переход без подсветки не считается выполненным триггером");
+});
+
 Deno.test("buildSystemPrompt: page_url и city попадают в контекст", () => {
   const p = buildSystemPrompt({ pageUrl: "https://ekt.kz/catalog/lampy/x/", city: "Алматы" });
   assertStringIncludes(p, "https://ekt.kz/catalog/lampy/x/");

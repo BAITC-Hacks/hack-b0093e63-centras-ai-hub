@@ -321,6 +321,12 @@ export function validateSuggest(options: unknown): Validation<SuggestAction> {
  * navigate/click/fill/suggest — не больше одного (последний по времени вызова выигрывает,
  * более ранние того же типа отбрасываются); highlight — не больше MAX_HIGHLIGHT, дедуп по target
  * (последняя note выигрывает), оставляются первые встретившиеся различные target.
+ *
+ * Автодобавление: fill(form="search") без click(target="search_submit") сам по себе не запускает
+ * поиск на сайте — заполняет поле и всё. Если в ходе нет НИКАКОГО click (лимит click ≤ 1 не даёт
+ * добавить его молча поверх другого click, например buy_button — тогда оставляем как есть), сразу
+ * после fill добавляется click(target="search_submit"). Модель может по-прежнему прислать этот
+ * click сама — тогда ничего не добавляется, дублей не будет.
  */
 export function collectTurnActions(actions: UiAction[]): UiAction[] {
   const lastSingleIndex = new Map<UiAction["type"], number>();
@@ -347,9 +353,18 @@ export function collectTurnActions(actions: UiAction[]): UiAction[] {
     if (keptTargets.has(target)) keepIndices.add(idx);
   }
 
-  return actions
+  const result = actions
     .map((a, i) => ({ a, i }))
     .filter(({ i }) => keepIndices.has(i))
     .sort((x, y) => x.i - y.i)
     .map(({ a }) => a);
+
+  const fillSearchIdx = result.findIndex((a) => a.type === "fill" && a.form === "search");
+  const hasClick = result.some((a) => a.type === "click");
+  if (fillSearchIdx !== -1 && !hasClick) {
+    const autoSubmit: ClickAction = { type: "click", target: "search_submit", label: "Ищу на сайте" };
+    result.splice(fillSearchIdx + 1, 0, autoSubmit);
+  }
+
+  return result;
 }

@@ -366,3 +366,54 @@ Deno.test("collectTurnActions: singleton-типы (click/fill/suggest) — то�
 Deno.test("collectTurnActions: пустой вход — пустой выход", () => {
   assertEquals(collectTurnActions([]), []);
 });
+
+// ---------------------------------------------------------------------------
+// collectTurnActions — автодобавление click(search_submit) после fill(form="search")
+// ---------------------------------------------------------------------------
+
+const fillSearch = (q: string, label = "Ищу"): UiAction => ({
+  type: "fill",
+  form: "search",
+  fields: { q },
+  label,
+});
+
+Deno.test("collectTurnActions: fill(search) без click — добавляет click(search_submit) сразу после fill", () => {
+  const out = collectTurnActions([fillSearch("лампа GX53")]);
+  assertEquals(out.map((a) => a.type), ["fill", "click"]);
+  const click = out[1] as { type: "click"; target: string; label: string };
+  assertEquals(click.target, "search_submit");
+  assertEquals(click.label, "Ищу на сайте");
+});
+
+Deno.test("collectTurnActions: fill(search) + свой click(search_submit) — дубль не добавляется", () => {
+  const out = collectTurnActions([
+    fillSearch("лампа GX53"),
+    { type: "click", target: "search_submit", label: "Свой вариант" },
+  ]);
+  assertEquals(out.filter((a) => a.type === "click").length, 1);
+  const click = out.find((a) => a.type === "click") as { label: string };
+  assertEquals(click.label, "Свой вариант");
+});
+
+Deno.test("collectTurnActions: fill(search) + click(buy_button) — не добавляет search_submit (лимит click ≤ 1)", () => {
+  const out = collectTurnActions([
+    fillSearch("лампа GX53"),
+    { type: "click", target: "buy_button", label: "Добавляю в корзину" },
+  ]);
+  assertEquals(out.filter((a) => a.type === "click").length, 1);
+  const click = out.find((a) => a.type === "click") as { target: string };
+  assertEquals(click.target, "buy_button");
+});
+
+Deno.test("collectTurnActions: fill(lead_form) — click(search_submit) не добавляется (не поиск)", () => {
+  const out = collectTurnActions([
+    { type: "fill", form: "lead_form", fields: { name: "Иван" }, label: "Заполняю" },
+  ]);
+  assertEquals(out.some((a) => a.type === "click"), false);
+});
+
+Deno.test("collectTurnActions: highlight между fill(search) и авто-click не мешает вставке сразу после fill", () => {
+  const out = collectTurnActions([fillSearch("лампа GX53"), hl("catalog_list")]);
+  assertEquals(out.map((a) => a.type), ["fill", "click", "highlight"]);
+});
