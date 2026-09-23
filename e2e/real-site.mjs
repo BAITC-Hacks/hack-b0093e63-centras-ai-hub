@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { ask, installWidget, lastAssistantLinks, lastAssistantText, overlayHasVisibleRing, waitAssistantSettled, waitPlateCycle, waitWidgetMounted, widgetSource } from './lib/inject.mjs';
+import { ask, installWidget, lastAssistantLinks, lastAssistantText, waitAssistantSettled, waitPlateCycle, waitWidgetMounted, widgetSource } from './lib/inject.mjs';
 
 dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 
@@ -81,9 +81,22 @@ async function scenarioS1(browser) {
     await ask(page, 'Есть лампочки E27 тёплого света? Открой самую дешёвую');
     await waitAssistantSettled(page, 60_000);
     const answer = await lastAssistantText(page);
+    // A `products` event renders a product card (widget.ts productCard()) as `.products a.pname[href]`,
+    // sibling of `.bubble`, not necessarily a markdown link inside the prose — accept either.
     const links = await lastAssistantLinks(page);
-    const hasLink = links.some((h) => /^https?:\/\/(www\.)?ekt\.kz\//i.test(h)) || /ekt\.kz\//i.test(answer);
-    report('S1: assistant answer contains an ekt.kz link/reference', hasLink, hasLink ? links.join(', ') : `no ekt.kz link in rendered links [${links.join(', ')}] or text: "${answer.slice(0, 150)}"`);
+    const hasProductCard = await page.evaluate(() => {
+      const host = document.querySelector('[data-ekt-consultant]');
+      const root = host && host.shadowRoot;
+      const rows = root ? root.querySelectorAll('.row.assistant') : [];
+      const last = rows[rows.length - 1];
+      return !!last?.querySelector('.products .card');
+    });
+    const hasLink = hasProductCard || links.some((h) => /^https?:\/\/(www\.)?ekt\.kz\//i.test(h)) || /ekt\.kz\//i.test(answer);
+    report(
+      'S1: assistant reply includes a product card (products event) or an ekt.kz link',
+      hasLink,
+      hasLink ? `productCard=${hasProductCard} links=[${links.join(', ')}]` : `no product card, no ekt.kz link in rendered links [${links.join(', ')}], text: "${answer.slice(0, 150)}"`,
+    );
 
     let navigated = false;
     try {
@@ -93,6 +106,17 @@ async function scenarioS1(browser) {
       navigated = false;
     }
     report(label, navigated, navigated ? `now at ${page.url()}` : `URL stayed at ${page.url()} after 30s (answer: "${answer.slice(0, 150)}")`);
+    if (navigated && hasLink) {
+      // Cross-check: the page we auto-navigated to should be the same product the card/link named.
+      const matches = links.some((h) => {
+        try {
+          return norm(new URL(h, 'https://ekt.kz/').href) === norm(page.url());
+        } catch {
+          return false;
+        }
+      });
+      report('S1: navigated to the same product shown in the reply', matches, matches ? undefined : `card/link hrefs=[${links.join(', ')}] vs navigated ${page.url()}`);
+    }
 
     if (navigated) {
       await waitWidgetMounted(page).catch(() => {});
@@ -183,20 +207,37 @@ async function scenarioS3(browser) {
       .catch(() => false);
     report(`${labelForm}: modal #zayavka visible`, modalShown, modalShown ? undefined : `modal not shown within 15s (answer: "${answer2.slice(0, 200)}")`);
 
-    if (modalShown) {
-      const fields = await page.evaluate(() => {
+    // Visible ≠ filled: the fill action runs behind its own 2s plate (plus fillForm's own work), so
+    // give the fields up to ~6s more (after the reply already settled) to actually receive real
+    // values before reading them — not just checking the modal opened.
+    const readFields = () =>
+      page.evaluate(() => {
         const m = document.querySelector('#zayavka');
         const val = (sel) => m?.querySelector(sel)?.value || '';
         return { name: val('[name="name"]'), phone: val('[name="phone"]'), question: val('[name="question"]') };
       });
-      // The phone input is IMask-masked (class `phone-mask`): an untouched field still has a
-      // non-empty `.value` — its placeholder skeleton "+7 (___) ___-__-__" — so "phone is filled"
-      // must check for actual digits, not just a non-empty string.
-      const phoneDigits = (fields.phone.match(/\d/g) || []).length;
-      report(`${labelForm}: name field filled`, fields.name.trim().length > 0, `name="${fields.name}"`);
-      report(`${labelForm}: phone field has real digits (not just the IMask placeholder)`, phoneDigits >= 10, `phone="${fields.phone}" (${phoneDigits} digits)`);
-      report(`${labelForm}: question field filled`, fields.question.trim().length > 0, `question="${fields.question.slice(0, 120)}"`);
-    }
+    const realPhoneDigits = (phone) => (phone.match(/\d/g) || []).length;
+    await page
+      .waitForFunction(
+        () => {
+          const m = document.querySelector('#zayavka');
+          if (!m) return false;
+          const val = (sel) => m.querySelector(sel)?.value || '';
+          const digits = (val('[name="phone"]').match(/\d/g) || []).length;
+          return val('[name="name"]').trim().length > 0 || digits >= 10 || val('[name="question"]').trim().length > 0;
+        },
+        { timeout: 6000 },
+      )
+      .catch(() => {}); // fields may legitimately stay empty — the checks below report that precisely
+
+    const fields = await readFields();
+    // The phone input is IMask-masked (class `phone-mask`): an untouched field still has a
+    // non-empty `.value` — its placeholder skeleton "+7 (___) ___-__-__" — so "phone is filled"
+    // must check for actual digits, not just a non-empty string.
+    const phoneDigits = realPhoneDigits(fields.phone);
+    report(`${labelForm}: name field filled`, fields.name.trim().length > 0, `name="${fields.name}"`);
+    report(`${labelForm}: phone field has real digits (not just the IMask placeholder)`, phoneDigits >= 10, `phone="${fields.phone}" (${phoneDigits} digits)`);
+    report(`${labelForm}: question field filled`, fields.question.trim().length > 0, `question="${fields.question.slice(0, 120)}"`);
     await shot(page, 'e2e-s3-return-form.png');
   } catch (e) {
     report(labelForm, false, e instanceof Error ? e.message : String(e));
@@ -226,10 +267,20 @@ async function scenarioS4(browser) {
     report(label, navigated, navigated ? `now at ${page.url()}` : `URL stayed at ${page.url()} after 30s (answer: "${answer.slice(0, 200)}")`);
     if (navigated) {
       await waitWidgetMounted(page).catch(() => {});
-      const ringSeen = await overlayHasVisibleRing(page).catch(() => false);
-      // give the deferred highlight a moment if it hasn't landed yet
-      const ringSeen2 = ringSeen || (await page.waitForTimeout(2000).then(() => overlayHasVisibleRing(page)).catch(() => false));
-      report('S4: payment_methods highlight ring visible', ringSeen2, ringSeen2 ? undefined : 'no .ring found in the overlay after landing on /payments/');
+      // Deferred highlight (queued alongside `navigate`) runs on the new page; actions.ts waits up
+      // to 8s for the target element before giving up — same budget/pattern as S1's price highlight.
+      const ringSeen = await page
+        .waitForFunction(
+          () => {
+            const host = document.querySelector('[data-ekt-overlay]');
+            const ring = host?.shadowRoot?.querySelector('.ring');
+            return !!ring && getComputedStyle(ring).display !== 'none';
+          },
+          { timeout: 9000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      report('S4: payment_methods highlight ring visible', ringSeen, ringSeen ? undefined : 'no .ring found in the overlay 9s after landing on /payments/');
     }
     await shot(page, 'e2e-s4-payments.png');
   } catch (e) {
