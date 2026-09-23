@@ -97,3 +97,47 @@
 в том же окне → подсветка цены; (2) «Хочу оформить возврат» → переход на `return.html` → подсветка
 условий/формы; (3) «Где вы находитесь в Астане?» → переход на контакты / подсветка телефона.
 Скриншоты в `docs/screenshots/`. Скрипт `npm run e2e`. Отчёт с результатами.
+
+## Дополнение к контракту (обязательно): консультант ДЕЛАЕТ за покупателя и ПРЕДЛАГАЕТ сценарии
+
+Новые типы `action` (вдобавок к `navigate`/`highlight`; все — после текста, перед `done`, в порядке вызова;
+отложенные после `navigate` выполняются на новой странице по порядку):
+
+- `{"type":"click","target":"buy_button"|"search_submit","label":"Добавляю в корзину"}` — нажать элемент.
+  Разрешённые цели: `buy_button` (`.btn-cart` — на реальном ekt.kz это add2basket через JS сайта), `search_submit`
+  (`[data-ekt-target="search_submit"], form[action*="search"] button[type="submit"]`). Виджет показывает плашку
+  «<label> · Отмена» 2 с, подсвечивает элемент, затем `element.click()`.
+- `{"type":"fill","form":"return_form"|"lead_form"|"search","fields":{…},"label":"Заполняю заявление на возврат"}` —
+  заполнить поля: поиск поля внутри формы-цели по `[data-ekt-field="<key>"]`, затем `[name="<key>"]`; установить
+  value, отправить события `input` и `change`; подсветить форму. **Форму не отправлять** — отправляет человек.
+  Ключи полей: return_form — `name, phone, order_number, purchase_date, product, reason`; lead_form — `name, phone, city, comment`;
+  search — `q`. Цель формы: `lead_form` → `[data-ekt-target="lead_form"]`.
+- `{"type":"filter","filters":{"Тип цоколя":"E27","Цветовая температура":"4000"},"label":"Применяю фильтры"}` —
+  виджет делает `window.dispatchEvent(new CustomEvent("ekt:filter",{detail:{filters}}))`; страница каталога
+  (демо) применяет фильтры и подсвечивает список. На чужой странице — игнор.
+- `{"type":"suggest","options":["Открыть карточку","Добавить в корзину"]}` — 1–4 кнопки быстрых ответов под
+  последним сообщением ассистента; клик = отправка этого текста как сообщения пользователя. Кнопки исчезают
+  после следующего сообщения.
+
+Инструменты бэкенда: `click_element {target, label}`, `fill_form {form, fields, label}`,
+`apply_filters {filters, label}`, `suggest_replies {options}` (валидация enum/ключей/длины: option ≤ 40 символов,
+значение поля ≤ 200, телефон — только если клиент сам его написал). Лимиты на ответ: navigate ≤ 1, click ≤ 1,
+fill ≤ 1, filter ≤ 1, highlight ≤ 3, suggest ≤ 1.
+
+Правила промпта (сценарии, «плейбук»):
+1. **Подбор → покупка:** найти → показать 1–5 вариантов → предложить (`suggest_replies`) «Открыть карточку»/«Добавить в корзину» →
+   по согласию `navigate_to` карточки + `highlight price` → по явному «да, добавь» `click_element buy_button` + пояснить, что
+   оформление корзины — на сайте.
+2. **Возврат/обмен:** условия из `search_knowledge` → собрать номер заказа/дату покупки, товар, причину, имя, телефон →
+   `navigate_to /return/` + `fill_form return_form` + `highlight return_form` → «проверьте и нажмите “Отправить”».
+3. **Каталог по характеристикам:** `navigate_to /catalog/svetilniki_lampy/lampy/` + `apply_filters` (ключи = названия характеристик из
+   `category_facets`).
+4. **Оплата/доставка:** `navigate_to /payments/` + `highlight payment_methods`. **Контакты:** `/about/contacts/` + `highlight contacts_phone`.
+5. **Заявка менеджеру:** на странице с формой — `fill_form lead_form`; иначе `create_lead` (как раньше, с согласия).
+6. Действия, меняющие состояние (click, fill), — только после явного согласия клиента в диалоге; сначала сказать, что сделаешь.
+   Проактивно предлагать следующий шаг сценария через `suggest_replies`.
+
+Демо-витрина: форма возврата `[data-ekt-target="return_form"]` с полями `data-ekt-field` (не отправляет данные —
+показывает «Демо: заявление сформировано»), форма заявки `[data-ekt-target="lead_form"]` (в шапке/на контактах),
+поиск `[data-ekt-target="search"]` + `search_submit` (фильтрует витрину), корзина — счётчик в шапке
+(`[data-ekt-target="cart"]`, localStorage), «Купить» (`.btn-cart`) добавляет в демо-корзину, каталог слушает `ekt:filter`.
