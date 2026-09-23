@@ -58,3 +58,6 @@ ingest.ts:207 считает fullRun через !report.limit; canDeactivate з�
 create_lead проверяет телефон из userTexts; отдельного поля/проверки согласия в исполнителе нет. Промпт требует согласия.
 validateAnswer выполняется после потоковой выдачи текста и сохраняет flags. Текст автоматически не исправляется.
 Лимиты: 2000 символов, 12 сообщений истории, 5 раундов инструментов, 20 запросов/мин на сессию, 60 на IP, 3 заявки на сессию.
+
+## Дополнительный воспроизведённый dry-run
+`npm run ingest:seed -- --dry-run` — exit 0, файл evidence/ingest-dry-run.txt. Вывод: products=89, products_with_price=89, categories=24, pages=123, page_chunks=539, branches=9, fetched_ratio=1, full_run=true, will_deactivate_missing=true. Команда завершилась строкой «в БД ничего не записано». Это подтверждает решение загрузчика о деактивации, но не факт удаления/скрытия данных в работающей базе.

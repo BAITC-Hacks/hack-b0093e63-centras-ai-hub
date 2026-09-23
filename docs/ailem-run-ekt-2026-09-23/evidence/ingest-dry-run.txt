@@ -1,0 +1,93 @@
+
+> ekt-ai-consultant@1.0.0 ingest:seed
+> tsx scraper/src/ingest.ts --dir seed --dry-run
+
+[ingest] данные: {
+  products: 89,
+  products_with_price: 89,
+  products_without_category: 0,
+  categories: 24,
+  pages: 123,
+  page_chunks: 539,
+  branches: 9,
+  fetched_ratio: 1,
+  full_run: true,
+  will_deactivate_missing: true
+}
+[ingest] пример товара: {
+  id: 24987,
+  sku: '150200338_',
+  supplier_sku: '150200338_',
+  name: 'LED ЛАМПА C37 "Свеча" 7W 630Lm 230V 4000K E14 MEGALIGHT (10/100)',
+  url: 'https://ekt.kz/catalog/svetilniki_lampy/lampy/svetodiodnye_led_dba/led_svecha_s35_s37/led_lampa_c37_svecha_7w_630lm_230v_4000k_e14_megalight_10_100/',
+  category_url: 'https://ekt.kz/catalog/svetilniki_lampy/lampy/svetodiodnye_led_dba/led_svecha_s35_s37/',
+  category_path: [
+    'Светильники / Лампы',
+    'Лампы',
+    'Светодиодные',
+    'LED Свеча С35 / С37'
+  ],
+  brand: 'MEGALIGHT',
+  price_site: 391,
+  price_store: 409,
+  order_note: null,
+  currency: 'KZT',
+  city: 'almaty',
+  multiplicity: 1,
+  is_new: false,
+  image_url: 'https://ekt.kz/upload/iblock/c9f/j1uaie5vtzo5xso2a2jkc2pe974gxn4l/led_lampa_c37_svecha_7w_630lm_230v_4000k_e14_megalight_10_100.jpg',
+  description: 'Светодиодная лампа C37 "Свеча" Megalight - это современная замена ламп накаливания. Лампы отлично подойдут для внутреннего освещения жилых помещений, а также для оформления интерьеров кафе и ресторанов, холлов гостиниц и других помещений.\n' +
+    '\n' +
+    'Технические характеристики\n' +
+    '\n' +
+    'Тип источника света: высокоэффективные светодиоды\n' +
+    '\n' +
+    'Мощность: 7 Вт\n' +
+    '\n' +
+    'Цветность: 4000 К\n' +
+    '\n' +
+    'Цоколь: Е14',
+  attrs: {
+    'Артикул': '150200338_',
+    'Новинка': 'Нет',
+    'Артикул поставщика': '150200338_',
+    'Тип': 'лампочка',
+    'Категория цветности света': 'Дневной',
+    'Мощность': '7',
+    'Тип цоколя': 'E14',
+    'Торговая марка': 'MEGALIGHT',
+    'Форма лампы': 'Свеча',
+    'Цветовая температура': '4000',
+    'Тип лампы': 'Светодиодные'
+  },
+  search_text: 'LED ЛАМПА C37 "Свеча" 7W 630Lm 230V 4000K E14 MEGALIGHT (10/100)\n' +
+    'MEGALIGHT\n' +
+    '150200338_\n' +
+    '150200338_\n' +
+    'Светильники / Лампы / Лампы / Светодиодные / LED Свеча С35 / С37\n' +
+    'Артикул: 150200338_\n' +
+    'Новинка: Нет\n' +
+    'Артикул поставщика: 150200338_\n' +
+    'Тип: лампочка\n' +
+    'Категория цветности света: Дневной\n' +
+    'Мощность: 7\n' +
+    'Тип цоколя: E…',
+  content_hash: 'd878ff46edbe88102f8392cfdff317e8dd42dc898f6e538b5778914ff40684f2',
+  is_active: true,
+  scraped_at: '2026-09-23T10:15:01.757Z',
+  updated_at: '2026-09-23T12:04:39.122Z'
+}
+[ingest] страницы по типам: {
+  news: 21,
+  about: 53,
+  contacts: 1,
+  production: 6,
+  article: 7,
+  tech: 31,
+  faq: 1,
+  howto: 1,
+  payment: 1,
+  return: 1
+}
+[ingest] чанки: 539, длина min/avg/max = 10/528/1193
+[ingest] --dry-run: в БД ничего не записано

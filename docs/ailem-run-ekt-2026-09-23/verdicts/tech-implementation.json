@@ -1,0 +1,95 @@
+{
+  "criterion": "implementation",
+  "max": 25,
+  "score": 22,
+  "band": "22-25",
+  "evidence": [
+    {
+      "type": "readme",
+      "ref": "docs/ailem-run-ekt-2026-09-23/evidence/README.snapshot.md:25",
+      "quote": "Подбор товаров ... Ответы о магазине ... Диалог ... Действия на сайте ... Заявка менеджеру ... Подготовка данных",
+      "observed": "Заявленные группы функций прослеживаются до реальных исполнителей; структура scraper → PostgreSQL → Edge Function/OpenAI → widget понятна. Нижняя граница верхнего диапазона: с учётом пяти часов разработки реализация полноценная, но обнаружен существенный дефект контракта частичного обновления данных. Заглушками ключевые функции не заменены."
+    },
+    {
+      "type": "code",
+      "ref": "extension/content.js:16",
+      "quote": "s.src = chrome.runtime.getURL('widget.js'); s.setAttribute('data-api', API);",
+      "observed": "Расширение подключает сборку виджета к облачному API; web/src/widget.ts:522 отправляет POST, строка 544 читает SSE. Отдельный mock-режим явно описан как режим без AI в README.snapshot.md:161 и не является стандартным путём расширения."
+    },
+    {
+      "type": "code",
+      "ref": "supabase/functions/chat/index.ts:86",
+      "quote": "const stream = createSSEStream((w) => runChat(w, cfg, p.value, meta));",
+      "observed": "Входной HTTP-маршрут связан с обработчиком чата и потоковым ответом; это исполняемая интеграция клиента и сервера."
+    },
+    {
+      "type": "code",
+      "ref": "supabase/functions/chat/chat.ts:177",
+      "quote": "res.toolCalls.map((c) => executeTool(c.function.name, c.function.arguments, toolCtx))",
+      "observed": "Загружается история (строка 104), вызывается модель (140), исполняются инструменты, результаты возвращаются следующему раунду модели (181). Карточки и UI-команды выдаются через SSE (228, 243), ответ и результаты сохраняются в БД (246)."
+    },
+    {
+      "type": "code",
+      "ref": "supabase/functions/chat/openai.ts:184",
+      "quote": "await (o.fetchImpl ?? fetch)(`${o.baseUrl ?? DEFAULT_BASE_URL}/chat/completions`,",
+      "observed": "Реальные HTTP-вызовы Chat Completions и embeddings (строка 205); содержимое ответа не выбирается из заранее написанных реплик."
+    },
+    {
+      "type": "code",
+      "ref": "supabase/functions/chat/tools.ts:544",
+      "quote": "await ctx.db.rpc(\"search_products\", {",
+      "observed": "Поиск передаёт запрос, вектор и фильтры в БД; get_product читает products (622), category_facets и list_categories вызывают RPC (689, 706), search_knowledge вызывает search_chunks (733), get_branches читает branches (780), create_lead вставляет запись в leads и возвращает ID (857). Все 12 инструментов подключены к EXECUTORS (956)."
+    },
+    {
+      "type": "code",
+      "ref": "supabase/migrations/20260923170000_search_rank.sql:133",
+      "quote": "select id, sum(w / (60.0 + r)) as score",
+      "observed": "SQL действительно объединяет артикул, полнотекстовый поиск, триграммы и векторное сходство. Фильтры характеристик, бренда, категории и цены применяются к активным товарам (строки 34–57). Таблицы и RPC определены миграциями, поиск не имитирован."
+    },
+    {
+      "type": "code",
+      "ref": "web/src/actions.ts:462",
+      "quote": "if (modal) await openModal(modal, target); ... else target!.click();",
+      "observed": "Серверные команды исполняются в браузере: подсветка (444), формы (465), переход с отменой и сохранением отложенных действий (490). web/src/widget.ts:631 вызывает runActions; :220 сохраняет диалог; :327 отправляет feedback. Локализации ru/kk/en есть в i18n.ts:47/90/133; языковая инструкция модели — prompt.ts:45."
+    },
+    {
+      "type": "code",
+      "ref": "scraper/src/scrape.ts:265",
+      "quote": "const r = classifyAndParse(finalUrl, res.body);",
+      "observed": "Полученный HTML разбирается в товары, категории, страницы и филиалы. parse/product.ts:63/69/97 извлекает название, характеристики и цену из DOM. ingest.ts:254/300/306/325/365/395/408 загружает данные, историю цен, фрагменты страниц и реальные эмбеддинги; scrape_runs фиксирует выполнение (:243, :417)."
+    },
+    {
+      "type": "code",
+      "ref": ".github/workflows/refresh-data.yml:32",
+      "quote": "SCRAPER_CATEGORY: /catalog/svetilniki_lampy/lampy/",
+      "observed": "Подготовлен реальный последовательный refresh: scrape → ingest (43, 45), но он ограничен категорией и максимумом 100 товаров (33), при SCRAPER_LIMIT=0 (29). Это важный входной режим для проверки связности загрузчика."
+    },
+    {
+      "type": "code",
+      "ref": "scraper/src/scrape.ts:245",
+      "quote": "if (productLimitReached(url)) { ... done.add(url);",
+      "observed": "Пропущенные по лимиту товары отмечаются done. В fetched они учитываются на строке 310; отчёт :311–330 хранит limit, но не category/maxProducts. Поэтому высокая доля fetched/total_urls не доказывает полный обход каталога."
+    },
+    {
+      "type": "code",
+      "ref": "scraper/src/ingest.ts:337",
+      "quote": "const gone = existing.filter((e) => e.is_active && !seen.has(e.id)).map((e) => e.id);",
+      "observed": "fullRun определяется только через !report.limit (:207); existing выбирает все товары (:258–268). При успешном частичном обновлении отсутствующие в выборке активные товары из других категорий будут деактивированы (:339) и исключены из поиска по условию p.is_active. Это подтверждённый дефект связи scraper/ingest/search, а не утверждение о произошедшем повреждении облачной БД."
+    },
+    {
+      "type": "run",
+      "ref": "docs/ailem-run-ekt-2026-09-23/evidence/ingest-dry-run.txt:13",
+      "quote": "fetched_ratio: 1, full_run: true, will_deactivate_missing: true",
+      "observed": "Переданный агрегатором воспроизводимый dry-run загрузки seed из 89 товаров подтверждает неверную классификацию ограниченного снимка как полного. Проверка не изменяла БД."
+    }
+  ],
+  "gaps": [
+    "Передавать область обхода и ограничения category/max_products в scrape-report; не считать пропуски из-за лимита успешно полученными страницами при определении полноты обхода.",
+    "Разрешать глобальную деактивацию только после подтверждённого полного обхода; для частичного обновления ограничить сравнение доказанно обследованной областью либо отключить деактивацию. Проверить сценарий БД с несколькими категориями → refresh категории «Лампы»: товары вне неё должны оставаться активными и доступными поиску."
+  ],
+  "out_of_scope": [
+    "Устойчивость точного подбора, поведение при отказах и полнота повторных E2E/eval относятся к reliability; исторические результаты не приравниваются к текущему прогону.",
+    "Согласие на заявку, персональные данные и безопасность требуют отдельной оценки; они не использованы для снижения балла implementation.",
+    "CRM, кабинет менеджера, складские остатки и полный ассортимент явно не заявлены как реализованные в текущей версии; их отсутствие не штрафуется с учётом формулировки критерия и пятичасового ограничения."
+  ]
+}
