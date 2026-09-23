@@ -60,7 +60,9 @@ export async function waitAssistantSettled(page, timeoutMs = 60_000) {
       const root = host && host.shadowRoot;
       const rows = root ? root.querySelectorAll('.row.assistant') : [];
       const last = rows[rows.length - 1];
-      return !!last && !last.querySelector('.status');
+      // The widget marks the reply row aria-busy="true" until the stream ends (the «thinking» dots
+      // vanish with the first text chunk, long before products/actions arrive).
+      return !!last && !last.querySelector('.status') && last.getAttribute('aria-busy') !== 'true';
     },
     { timeout: timeoutMs },
   );
