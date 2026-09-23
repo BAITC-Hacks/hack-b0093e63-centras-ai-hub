@@ -23,12 +23,15 @@
     "ingest:seed": "tsx scraper/src/ingest.ts --dir seed",
     "serve:fn": "supabase functions serve chat --no-verify-jwt --env-file .env.local",
     "smoke": "node scripts/smoke.mjs",
-    "check:search": "node scripts/check-search.mjs"
+    "check:search": "node scripts/check-search.mjs",
+    "e2e": "node e2e/real-site.mjs",
+    "e2e:api": "node e2e/api-contract.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
     "esbuild": "^0.28.2",
     "happy-dom": "^20.14.5",
+    "playwright-core": "^1.63.0",
     "supabase": "^2.117.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
