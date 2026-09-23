@@ -87,6 +87,35 @@ Deno.test("validateNavigate: javascript:/protocol-relative/поддельный 
   assertEquals(r.url, "https://ekt.kz/catalog/lampy/x/");
 });
 
+Deno.test("validateNavigate: относительный путь от корня сайта резолвится от https://ekt.kz (служебный)", () => {
+  for (
+    const [rel, expected] of [
+      ["/payments/", "https://ekt.kz/payments/"],
+      ["/return/", "https://ekt.kz/return/"],
+      ["/personal/cart/", "https://ekt.kz/personal/cart/"],
+      ["/", "https://ekt.kz/"],
+      // без хвостового / — тоже резолвится и приводится к каноническому виду.
+      ["/payments", "https://ekt.kz/payments/"],
+    ] as const
+  ) {
+    const r = validateNavigate(rel, new Set());
+    assertEquals(r.ok, true, `expected ok for ${rel}`);
+    assertEquals(r.url, expected);
+  }
+});
+
+Deno.test("validateNavigate: относительный путь к известному товару (из knownUrls) резолвится", () => {
+  const known = new Set(["https://ekt.kz/catalog/lampy/lampa-a60-10w/"]);
+  const r = validateNavigate("/catalog/lampy/lampa-a60-10w/", known);
+  assertEquals(r.ok, true);
+  assertEquals(r.url, "https://ekt.kz/catalog/lampy/lampa-a60-10w/");
+});
+
+Deno.test("validateNavigate: относительный путь вне known/служебных — по-прежнему ошибка", () => {
+  const r = validateNavigate("/catalog/lampy/some-other-product/", new Set());
+  assertEquals(r.ok, false);
+});
+
 Deno.test("validateNavigate: неизвестный url (не из инструментов и не служебный) — ошибка", () => {
   const r = validateNavigate("https://ekt.kz/catalog/lampy/some-other-product/", new Set());
   assertEquals(r.ok, false);

@@ -104,6 +104,14 @@ Deno.test("TOOL_DEFS: все 12 инструментов с уникальным
   assertEquals(names.includes("apply_filters"), false);
 });
 
+Deno.test("navigate_to: описание инструмента упоминает относительный путь и /personal/cart/", () => {
+  const def = TOOL_DEFS.find((t) => t.function.name === "navigate_to")!;
+  const urlDesc = (def.function.parameters as { properties: { url: { description: string } } }).properties.url
+    .description;
+  assertEquals(urlDesc.includes("относительный"), true);
+  assertEquals(def.function.description.includes("/personal/cart/"), true);
+});
+
 Deno.test("evaluateLimits", () => {
   assertEquals(evaluateLimits(19, 59).ok, true);
   assertEquals(evaluateLimits(20, 0).ok, false);

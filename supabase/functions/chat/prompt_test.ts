@@ -35,6 +35,21 @@ Deno.test("buildSystemPrompt: сценарий покупки в 1 клик и �
   assertStringIncludes(p, "lead_form");
 });
 
+Deno.test("buildSystemPrompt: триггеры первого хода — действие обязательно в этом же ответе", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "Триггеры — действие ОБЯЗАТЕЛЬНО в этом же ответе");
+  assertStringIncludes(p, "найди на сайте / покажи на сайте / открой / перейди / где на сайте");
+  assertStringIncludes(p, "уже в ПЕРВОМ ответе");
+});
+
+Deno.test("buildSystemPrompt: few-shot примеры реплика → инструменты", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "Хочу оформить возврат");
+  assertStringIncludes(p, "Найди на сайте лампу GX53");
+  assertStringIncludes(p, 'fill_form(form="search"');
+  assertStringIncludes(p, 'click_element(target="search_submit"');
+});
+
 Deno.test("buildSystemPrompt: page_url и city попадают в контекст", () => {
   const p = buildSystemPrompt({ pageUrl: "https://ekt.kz/catalog/lampy/x/", city: "Алматы" });
   assertStringIncludes(p, "https://ekt.kz/catalog/lampy/x/");

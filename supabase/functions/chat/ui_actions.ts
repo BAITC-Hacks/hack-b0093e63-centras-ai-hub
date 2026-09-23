@@ -158,19 +158,24 @@ export interface NavigateCheck {
 }
 
 /**
- * Проверяет url для navigate_to: только https://ekt.kz/…, без query/hash, и только если url
- * встречался в результатах инструментов этого диалога (knownUrls) или входит в служебные пути.
+ * Проверяет url для navigate_to: только https://ekt.kz/… (или относительный путь от корня сайта,
+ * начинающийся с "/" — резолвится от https://ekt.kz), без query/hash, и только если url встречался
+ * в результатах инструментов этого диалога (knownUrls) или входит в служебные пути.
  * При успехе возвращает КАНОНИЧЕСКУЮ форму — ровно ту строку, что была в knownUrls или в служебном
  * списке (с хвостовым /, как на самом ekt.kz), а не «схлопнутый» ключ сравнения без слэша.
  */
 export function validateNavigate(url: string, knownUrls: Iterable<string>): NavigateCheck {
-  const raw = (url ?? "").trim();
+  let raw = (url ?? "").trim();
   if (!raw) return { ok: false, error: "Пустой url." };
   if (raw.includes("?") || raw.includes("#")) {
     return { ok: false, error: "url не должен содержать query-параметры или fragment." };
   }
+  // Относительный путь ("/return/") — модель иногда присылает именно так; резолвим от ekt.kz.
+  // Простая конкатенация строк, не разбор URL — так "//evil.example/x" остаётся путём ПОД ekt.kz
+  // ("https://ekt.kz//evil.example/x"), а не превращается в переход на чужой хост.
+  if (raw.startsWith("/")) raw = "https://ekt.kz" + raw;
   const key = normalizeEktUrl(raw);
-  if (!key) return { ok: false, error: "Разрешены только ссылки на https://ekt.kz." };
+  if (!key) return { ok: false, error: "Разрешены только ссылки на https://ekt.kz (или относительный путь от /)." };
 
   for (const svc of SERVICE_NAV_URLS) {
     if (normalizeEktUrl(svc) === key) return { ok: true, url: svc };
