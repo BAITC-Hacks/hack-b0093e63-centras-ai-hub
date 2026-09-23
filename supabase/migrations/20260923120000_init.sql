@@ -318,7 +318,7 @@ $$;
 
 -- Какие характеристики встречаются у товаров категории (подсказка модели для фильтров).
 create or replace function ekt.category_facets(p_category text, p_limit int default 12)
-returns table (key text, values text[], products int)
+returns table (key text, top_values text[], products int)
 language sql stable
 set search_path = ekt, public, extensions
 as $$

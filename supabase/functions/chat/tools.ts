@@ -460,9 +460,9 @@ const categoryFacets: Executor = async (args, ctx) => {
   if (!category) return { result: { error: "Укажи category." }, cards: [] };
   const { data, error } = await ctx.db.rpc("category_facets", { p_category: category, p_limit: 12 });
   if (error) throw new Error(`category_facets: ${error.message}`);
-  const facets = ((data ?? []) as { key: string; values: string[] | null; products: number }[]).map((f) => ({
+  const facets = ((data ?? []) as { key: string; top_values: string[] | null; products: number }[]).map((f) => ({
     key: f.key,
-    values: (f.values ?? []).slice(0, 15).map((v) => truncate(v, 60)),
+    values: (f.top_values ?? []).slice(0, 15).map((v) => truncate(v, 60)),
     products: f.products,
   }));
   return {
