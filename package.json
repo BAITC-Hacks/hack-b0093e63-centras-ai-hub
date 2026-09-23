@@ -17,7 +17,12 @@
     "dev:web": "node web/build.mjs --watch",
     "eval": "tsx eval/run.ts",
     "db:push": "supabase db push",
-    "fn:deploy": "supabase functions deploy chat --no-verify-jwt"
+    "fn:deploy": "supabase functions deploy chat --no-verify-jwt",
+    "setup:local": "node scripts/setup-local.mjs",
+    "seed:update": "node scripts/seed-update.mjs",
+    "ingest:seed": "tsx scraper/src/ingest.ts --dir seed",
+    "serve:fn": "supabase functions serve chat --no-verify-jwt --env-file .env.local",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

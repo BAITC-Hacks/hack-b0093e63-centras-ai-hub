@@ -24,9 +24,13 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_EMBEDDING_MODEL: text-embedding-3-small
-      SCRAPER_CONCURRENCY: "3"
+      SCRAPER_CONCURRENCY: "4"
       SCRAPER_DELAY_MS: "300"
       SCRAPER_LIMIT: ${{ github.event.inputs.limit || '0' }}
+      # Ежедневный прогон следит за одной категорией («Лампы») — быстрый прогон + проверка цен;
+      # полный обход каталога остаётся ручным (`npm run refresh` без SCRAPER_CATEGORY).
+      SCRAPER_CATEGORY: /catalog/svetilniki_lampy/lampy/
+      SCRAPER_MAX_PRODUCTS: "100"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -3,6 +3,7 @@ data/
 .env
 .env.local
 .env.*.local
+.env.local.generated
 web/public/widget.js
 web/public/widget.js.map
 supabase/.temp/
