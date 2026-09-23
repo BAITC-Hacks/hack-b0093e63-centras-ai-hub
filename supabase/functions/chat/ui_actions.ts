@@ -2,39 +2,46 @@
 // Контракт (SSE `action`, допустимые url/target/форма, лимиты) — см. Global Constraints в
 // docs/superpowers/plans/2026-09-23-agent-hands.md. Никакой сети/БД здесь нет — легко тестируется.
 
-import { extractUrls } from "./validate.ts";
-
 // ---------------------------------------------------------------------------
 // Константы контракта
 // ---------------------------------------------------------------------------
 
-/** Цели подсветки (`highlight`) — селекторы см. в плане, здесь только имена для контракта/промпта. */
+/**
+ * Цели подсветки (`highlight`) — селекторы реального ekt.kz см. в плане (РАЗВОРОТ), здесь только
+ * имена для контракта/промпта.
+ */
 export const TARGETS = [
   "price",
   "buy_button",
   "characteristics",
   "description",
   "return_conditions",
-  "return_form",
   "payment_methods",
   "contacts_phone",
   "catalog_list",
   "search",
+  "cart",
 ] as const;
 export type Target = typeof TARGETS[number];
 
-/** Цели нажатия (`click`). */
-export const CLICK_TARGETS = ["buy_button", "search_submit"] as const;
+/**
+ * Цели нажатия (`click`): `buy_button` — add2basket; `search_submit` — сабмит формы поиска;
+ * `buy_one_click`/`lead_form` — открыть соответствующую модалку сайта (сама форма — через fill).
+ */
+export const CLICK_TARGETS = ["buy_button", "search_submit", "buy_one_click", "lead_form"] as const;
 export type ClickTarget = typeof CLICK_TARGETS[number];
 
-/** Формы для заполнения (`fill`). */
-export const FORMS = ["return_form", "lead_form", "search"] as const;
+/**
+ * Формы для заполнения (`fill`) — реальные модалки/формы ekt.kz. Возврата как отдельной формы на
+ * сайте нет: сценарий возврата — страница условий `/return/` + заявка через `lead_form.question`.
+ */
+export const FORMS = ["lead_form", "buy_one_click", "search"] as const;
 export type Form = typeof FORMS[number];
 
-/** Допустимые ключи полей для каждой формы. */
+/** Допустимые ключи полей для каждой формы (как в реальных модалках/формах ekt.kz). */
 export const FORM_FIELDS: Record<Form, readonly string[]> = {
-  return_form: ["name", "phone", "order_number", "purchase_date", "product", "reason"],
-  lead_form: ["name", "phone", "city", "comment"],
+  lead_form: ["name", "email", "phone", "question"],
+  buy_one_click: ["name", "phone", "email"],
   search: ["q"],
 };
 
@@ -46,11 +53,11 @@ export const SERVICE_NAV_PATHS = [
   "/about/contacts/",
   "/about/faq/",
   "/catalog/svetilniki_lampy/lampy/",
+  "/personal/cart/",
   "/",
 ] as const;
 
 export const MAX_HIGHLIGHT = 3;
-const MAX_FILTERS = 8;
 const MAX_SUGGEST_OPTIONS = 4;
 const MAX_OPTION_LEN = 40;
 const MAX_FIELD_LEN = 200;
@@ -82,17 +89,12 @@ export interface FillAction {
   fields: Record<string, string>;
   label: string;
 }
-export interface FilterAction {
-  type: "filter";
-  filters: Record<string, string>;
-  label: string;
-}
 export interface SuggestAction {
   type: "suggest";
   options: string[];
 }
 
-export type UiAction = NavigateAction | HighlightAction | ClickAction | FillAction | FilterAction | SuggestAction;
+export type UiAction = NavigateAction | HighlightAction | ClickAction | FillAction | SuggestAction;
 
 export type Validation<T> = { ok: true; action: T } | { ok: false; error: string };
 
@@ -111,11 +113,31 @@ export function normalizeKzPhone(raw: string): string | null {
   return "+7" + national;
 }
 
+/**
+ * Проверяет, что телефон (нормализованный, +7XXXXXXXXXX) действительно встречается среди цифр
+ * сообщений клиента — используется fill_form (поле phone) и create_lead, чтобы модель не могла
+ * указать телефон, который клиент сам не писал в этом диалоге.
+ */
+export function phoneMentionedByUser(normalizedPhone: string, userTexts: Iterable<string>): boolean {
+  const digits = (normalizedPhone ?? "").replace(/\D/g, "");
+  const national = digits.slice(-10);
+  if (national.length !== 10) return false;
+  for (const t of userTexts) {
+    if ((t ?? "").replace(/\D/g, "").includes(national)) return true;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // navigate_to
 // ---------------------------------------------------------------------------
 
-/** Нормализует url ekt.kz к каноническому виду: https, без www., без хвостового /. Иначе null. */
+/**
+ * Нормализует url ekt.kz для СРАВНЕНИЯ: https, без www., без хвостового /. Иначе null.
+ * Это ключ сравнения, а не значение, которое можно отдавать наружу — хвостовой / из реальных url
+ * (как в БД и на самом ekt.kz) теряется, поэтому `validateNavigate` возвращает не эту функцию, а
+ * исходную (каноническую) строку из knownUrls/служебного списка.
+ */
 export function normalizeEktUrl(raw: string): string | null {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return null;
@@ -126,9 +148,8 @@ export function normalizeEktUrl(raw: string): string | null {
   return "https://ekt.kz" + (path || "/");
 }
 
-function isServicePath(normalized: string): boolean {
-  return (SERVICE_NAV_PATHS as readonly string[]).some((p) => normalizeEktUrl("https://ekt.kz" + p) === normalized);
-}
+/** Полные служебные url (https://ekt.kz + путь), с хвостовым / как в SERVICE_NAV_PATHS. */
+const SERVICE_NAV_URLS: readonly string[] = SERVICE_NAV_PATHS.map((p) => "https://ekt.kz" + p);
 
 export interface NavigateCheck {
   ok: boolean;
@@ -139,6 +160,8 @@ export interface NavigateCheck {
 /**
  * Проверяет url для navigate_to: только https://ekt.kz/…, без query/hash, и только если url
  * встречался в результатах инструментов этого диалога (knownUrls) или входит в служебные пути.
+ * При успехе возвращает КАНОНИЧЕСКУЮ форму — ровно ту строку, что была в knownUrls или в служебном
+ * списке (с хвостовым /, как на самом ekt.kz), а не «схлопнутый» ключ сравнения без слэша.
  */
 export function validateNavigate(url: string, knownUrls: Iterable<string>): NavigateCheck {
   const raw = (url ?? "").trim();
@@ -146,21 +169,20 @@ export function validateNavigate(url: string, knownUrls: Iterable<string>): Navi
   if (raw.includes("?") || raw.includes("#")) {
     return { ok: false, error: "url не должен содержать query-параметры или fragment." };
   }
-  const norm = normalizeEktUrl(raw);
-  if (!norm) return { ok: false, error: "Разрешены только ссылки на https://ekt.kz." };
-  if (isServicePath(norm)) return { ok: true, url: norm };
-  const known = new Set<string>();
+  const key = normalizeEktUrl(raw);
+  if (!key) return { ok: false, error: "Разрешены только ссылки на https://ekt.kz." };
+
+  for (const svc of SERVICE_NAV_URLS) {
+    if (normalizeEktUrl(svc) === key) return { ok: true, url: svc };
+  }
   for (const u of knownUrls) {
-    const n = normalizeEktUrl(u);
-    if (n) known.add(n);
+    const known = (u ?? "").trim();
+    if (known && normalizeEktUrl(known) === key) return { ok: true, url: known };
   }
-  if (!known.has(norm)) {
-    return {
-      ok: false,
-      error: "Этот url не встречался в результатах инструментов этого диалога и не входит в список служебных страниц.",
-    };
-  }
-  return { ok: true, url: norm };
+  return {
+    ok: false,
+    error: "Этот url не встречался в результатах инструментов этого диалога и не входит в список служебных страниц.",
+  };
 }
 
 export function buildNavigateAction(
@@ -175,17 +197,20 @@ export function buildNavigateAction(
   return { ok: true, action: { type: "navigate", url: v.url!, label: l } };
 }
 
-/** Собирает набор известных url (ekt.kz) из произвольных данных результатов инструментов/истории. */
-export function collectKnownUrls(dataItems: unknown[]): Set<string> {
+/**
+ * Объединяет несколько списков УЖЕ ПРОВЕРЕННЫХ url (ekt.kz) в один Set с дедупом. Каждый список —
+ * это заранее извлечённые из СТРУКТУРНЫХ полей (products[].url / item.url / search_knowledge
+ * items[].url / url успешного navigate) url конкретного вызова инструмента — см. `navUrlsOf` в
+ * tools.ts. Здесь намеренно нет разбора произвольного JSON/текста: если сканировать весь объект
+ * результата (включая `args`), в allow-list могут просочиться url, которые модель просто
+ * ПОПЫТАЛАСЬ передать (в т.ч. отклонённые navigate_to или url несуществующего товара в
+ * get_product(url=…)), а не те, что реально подтверждены инструментом.
+ */
+export function collectKnownUrls(urlLists: Iterable<Iterable<string> | undefined | null>): Set<string> {
   const urls = new Set<string>();
-  for (const item of dataItems) {
-    let text: string;
-    try {
-      text = JSON.stringify(item) ?? "";
-    } catch {
-      continue;
-    }
-    for (const u of extractUrls(text)) urls.add(u);
+  for (const list of urlLists) {
+    if (!list) continue;
+    for (const u of list) if (u) urls.add(u);
   }
   return urls;
 }
@@ -260,31 +285,6 @@ export function validateFill(form: string, fields: unknown, label: string): Vali
 }
 
 // ---------------------------------------------------------------------------
-// apply_filters
-// ---------------------------------------------------------------------------
-
-export function validateFilter(filters: unknown, label: string): Validation<FilterAction> {
-  const entries = filters && typeof filters === "object" && !Array.isArray(filters)
-    ? Object.entries(filters as Record<string, unknown>)
-    : [];
-  const out: Record<string, string> = {};
-  for (const [rawKey, v] of entries) {
-    const key = rawKey.trim();
-    const val = typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
-    if (!key || !val) continue;
-    if (key.length > 100 || val.length > MAX_FIELD_LEN) {
-      return { ok: false, error: `Слишком длинный фильтр «${key}».` };
-    }
-    out[key] = val;
-    if (Object.keys(out).length >= MAX_FILTERS) break;
-  }
-  if (!Object.keys(out).length) return { ok: false, error: "Укажи хотя бы один фильтр." };
-  const l = (label ?? "").trim().slice(0, MAX_LABEL_LEN);
-  if (!l) return { ok: false, error: "Укажи label — короткую фразу о том, что делаешь." };
-  return { ok: true, action: { type: "filter", filters: out, label: l } };
-}
-
-// ---------------------------------------------------------------------------
 // suggest_replies
 // ---------------------------------------------------------------------------
 
@@ -313,7 +313,7 @@ export function validateSuggest(options: unknown): Validation<SuggestAction> {
 
 /**
  * Собирает финальный список действий за один ход диалога, в порядке вызова:
- * navigate/click/fill/filter/suggest — не больше одного (последний по времени вызова выигрывает,
+ * navigate/click/fill/suggest — не больше одного (последний по времени вызова выигрывает,
  * более ранние того же типа отбрасываются); highlight — не больше MAX_HIGHLIGHT, дедуп по target
  * (последняя note выигрывает), оставляются первые встретившиеся различные target.
  */

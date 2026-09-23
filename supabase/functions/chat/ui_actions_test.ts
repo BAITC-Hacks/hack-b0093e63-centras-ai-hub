@@ -7,11 +7,11 @@ import {
   MAX_HIGHLIGHT,
   normalizeEktUrl,
   normalizeKzPhone,
+  phoneMentionedByUser,
   TARGETS,
   type UiAction,
   validateClick,
   validateFill,
-  validateFilter,
   validateHighlight,
   validateNavigate,
   validateSuggest,
@@ -31,35 +31,60 @@ Deno.test("normalizeEktUrl: http→https, без www., без хвостовог
   assertEquals(normalizeEktUrl("not a url"), null);
 });
 
-Deno.test("validateNavigate: разрешён url из результатов инструментов (knownUrls)", () => {
+Deno.test("validateNavigate: разрешён url из результатов инструментов (knownUrls), канонический с хвостовым /", () => {
   const known = new Set(["https://ekt.kz/catalog/lampy/lampa-a60-10w/"]);
   const r = validateNavigate("https://ekt.kz/catalog/lampy/lampa-a60-10w/", known);
   assertEquals(r.ok, true);
-  assertEquals(r.url, "https://ekt.kz/catalog/lampy/lampa-a60-10w");
+  // action.url — ровно та строка, что была в knownUrls (с хвостовым /, как в БД/на сайте), а не
+  // «схлопнутый» ключ сравнения без слэша (регрессия из живого прогона: navigate терял /).
+  assertEquals(r.url, "https://ekt.kz/catalog/lampy/lampa-a60-10w/");
 });
 
-Deno.test("validateNavigate: нормализация совпадает независимо от www./http/хвостового слэша", () => {
+Deno.test("validateNavigate: модель прислала url без хвостового / — в action.url всё равно канонический вид из knownUrls", () => {
+  const known = new Set(["https://ekt.kz/catalog/lampy/termoizluchatel_t_230_40_vt_e27_100/"]);
+  const r = validateNavigate("https://ekt.kz/catalog/lampy/termoizluchatel_t_230_40_vt_e27_100", known);
+  assertEquals(r.ok, true);
+  assertEquals(r.url, "https://ekt.kz/catalog/lampy/termoizluchatel_t_230_40_vt_e27_100/");
+});
+
+Deno.test("validateNavigate: нормализация совпадает независимо от www./http/хвостового слэша (сравнение), но url — канонический", () => {
   const known = new Set(["https://ekt.kz/catalog/lampy/lampa-a60-10w/"]);
   const r = validateNavigate("http://www.ekt.kz/catalog/lampy/lampa-a60-10w", known);
   assertEquals(r.ok, true);
-  assertEquals(r.url, "https://ekt.kz/catalog/lampy/lampa-a60-10w");
+  assertEquals(r.url, "https://ekt.kz/catalog/lampy/lampa-a60-10w/");
 });
 
-Deno.test("validateNavigate: служебные страницы разрешены без knownUrls", () => {
+Deno.test("validateNavigate: служебные страницы разрешены без knownUrls, url — с хвостовым / как в SERVICE_NAV_PATHS", () => {
   for (
-    const url of [
-      "https://ekt.kz/return/",
-      "https://ekt.kz/payments/",
-      "https://ekt.kz/about/howto/",
-      "https://ekt.kz/about/contacts/",
-      "https://ekt.kz/about/faq/",
-      "https://ekt.kz/catalog/svetilniki_lampy/lampy/",
-      "https://ekt.kz/",
-    ]
+    const [url, expected] of [
+      ["https://ekt.kz/return/", "https://ekt.kz/return/"],
+      ["https://ekt.kz/payments/", "https://ekt.kz/payments/"],
+      ["https://ekt.kz/about/howto/", "https://ekt.kz/about/howto/"],
+      ["https://ekt.kz/about/contacts/", "https://ekt.kz/about/contacts/"],
+      ["https://ekt.kz/about/faq/", "https://ekt.kz/about/faq/"],
+      ["https://ekt.kz/catalog/svetilniki_lampy/lampy/", "https://ekt.kz/catalog/svetilniki_lampy/lampy/"],
+      ["https://ekt.kz/personal/cart/", "https://ekt.kz/personal/cart/"],
+      ["https://ekt.kz/", "https://ekt.kz/"],
+      // модель прислала без хвостового / — результат всё равно канонический, с /.
+      ["https://ekt.kz/return", "https://ekt.kz/return/"],
+    ] as const
   ) {
     const r = validateNavigate(url, new Set());
     assertEquals(r.ok, true, `expected ok for ${url}`);
+    assertEquals(r.url, expected);
   }
+});
+
+Deno.test("validateNavigate: javascript:/protocol-relative/поддельный поддомен/UPPERCASE host", () => {
+  const known = new Set(["https://ekt.kz/catalog/lampy/x/"]);
+  assertEquals(validateNavigate("javascript:alert(1)", known).ok, false);
+  assertEquals(validateNavigate("//evil.example/phishing", known).ok, false);
+  assertEquals(validateNavigate("https://ekt.kz.evil.com/phishing", known).ok, false);
+  assertEquals(validateNavigate("https://evil-ekt.kz/phishing", known).ok, false);
+  // UPPERCASE host — валидный ekt.kz, должен нормально сматчиться и вернуть канонический вид.
+  const r = validateNavigate("https://EKT.KZ/catalog/lampy/x/", known);
+  assertEquals(r.ok, true);
+  assertEquals(r.url, "https://ekt.kz/catalog/lampy/x/");
 });
 
 Deno.test("validateNavigate: неизвестный url (не из инструментов и не служебный) — ошибка", () => {
@@ -85,31 +110,41 @@ Deno.test("validateNavigate: пустой url — ошибка", () => {
 });
 
 // ---------------------------------------------------------------------------
-// collectKnownUrls
+// collectKnownUrls — объединяет заранее извлечённые (структурные) списки url, без разбора
+// произвольного JSON/args (см. navUrlsOf в tools.ts, где url реально извлекаются).
 // ---------------------------------------------------------------------------
 
-Deno.test("collectKnownUrls: достаёт url ekt.kz из произвольных данных результатов инструментов", () => {
-  const data = [
-    { items: [{ url: "https://ekt.kz/catalog/lampy/a/" }, { url: "https://ekt.kz/catalog/lampy/b/" }] },
-    "текст со ссылкой https://ekt.kz/about/faq/ внутри",
-    { unrelated: "https://google.com" },
-  ];
-  const urls = collectKnownUrls(data);
-  assertEquals(urls.has("https://ekt.kz/catalog/lampy/a/"), true);
-  assertEquals(urls.has("https://ekt.kz/catalog/lampy/b/"), true);
-  assertEquals(urls.has("https://ekt.kz/about/faq/"), true);
-  assertEquals([...urls].some((u) => u.includes("google.com")), false);
+Deno.test("collectKnownUrls: объединяет несколько списков с дедупом, пропускает пустые/undefined", () => {
+  const urls = collectKnownUrls([
+    ["https://ekt.kz/catalog/lampy/a/", "https://ekt.kz/catalog/lampy/b/"],
+    undefined,
+    [],
+    ["https://ekt.kz/catalog/lampy/a/", "https://ekt.kz/about/faq/"],
+    null,
+  ]);
+  assertEquals([...urls].sort(), [
+    "https://ekt.kz/about/faq/",
+    "https://ekt.kz/catalog/lampy/a/",
+    "https://ekt.kz/catalog/lampy/b/",
+  ]);
+});
+
+Deno.test("collectKnownUrls: пустой вход — пустой Set", () => {
+  assertEquals(collectKnownUrls([]).size, 0);
 });
 
 // ---------------------------------------------------------------------------
 // validateHighlight
 // ---------------------------------------------------------------------------
 
-Deno.test("validateHighlight: известный target — ок", () => {
+Deno.test("validateHighlight: известный target — ок (cart есть, return_form упразднён)", () => {
   for (const t of TARGETS) {
     const r = validateHighlight(t, "подсказка");
     assertEquals(r.ok, true);
   }
+  assertEquals(TARGETS.includes("cart"), true);
+  assertEquals((TARGETS as readonly string[]).includes("return_form"), false);
+  assertEquals(validateHighlight("return_form", "подсказка").ok, false);
 });
 
 Deno.test("validateHighlight: неизвестный target — ошибка", () => {
@@ -126,7 +161,8 @@ Deno.test("validateHighlight: пустая note — ошибка", () => {
 // validateClick
 // ---------------------------------------------------------------------------
 
-Deno.test("validateClick: известные target ок, неизвестный — ошибка", () => {
+Deno.test("validateClick: известные target ок (buy_button/search_submit/buy_one_click/lead_form), неизвестный — ошибка", () => {
+  assertEquals([...CLICK_TARGETS].sort(), ["buy_button", "buy_one_click", "lead_form", "search_submit"]);
   for (const t of CLICK_TARGETS) assertEquals(validateClick(t, "жми").ok, true);
   assertEquals(validateClick("delete_account", "жми").ok, false);
   assertEquals(validateClick("buy_button", "").ok, false);
@@ -136,28 +172,34 @@ Deno.test("validateClick: известные target ок, неизвестный
 // validateFill
 // ---------------------------------------------------------------------------
 
-Deno.test("validateFill: разрешённые поля формы принимаются, телефон нормализуется", () => {
+Deno.test("validateFill: разрешённые поля формы lead_form принимаются, телефон нормализуется", () => {
   const r = validateFill(
-    "return_form",
-    { name: "Иван", phone: "8 701 234 56 78", order_number: "12345", reason: "Не подошёл размер" },
-    "Заполняю заявление",
+    "lead_form",
+    { name: "Иван", email: "ivan@example.com", phone: "8 701 234 56 78", question: "Возврат: заказ №123" },
+    "Заполняю заявку",
   );
   assertEquals(r.ok, true);
   if (r.ok) {
     assertEquals(r.action.fields.phone, "+77012345678");
     assertEquals(r.action.fields.name, "Иван");
-    assertEquals(r.action.form, "return_form");
+    assertEquals(r.action.form, "lead_form");
   }
 });
 
+Deno.test("validateFill: buy_one_click принимает name/phone/email", () => {
+  const r = validateFill("buy_one_click", { name: "Иван", phone: "+7 701 234 56 78" }, "Заполняю «Купить в 1 клик»");
+  assertEquals(r.ok, true);
+  if (r.ok) assertEquals(r.action.form, "buy_one_click");
+});
+
 Deno.test("validateFill: неизвестное поле формы — ошибка", () => {
-  const r = validateFill("return_form", { credit_card: "1234" }, "Заполняю");
+  const r = validateFill("lead_form", { credit_card: "1234" }, "Заполняю");
   assertEquals(r.ok, false);
 });
 
-Deno.test("validateFill: неизвестная форма — ошибка", () => {
-  const r = validateFill("checkout_form", { q: "x" }, "Заполняю");
-  assertEquals(r.ok, false);
+Deno.test("validateFill: неизвестная форма (в т.ч. упразднённая return_form) — ошибка", () => {
+  assertEquals(validateFill("checkout_form", { q: "x" }, "Заполняю").ok, false);
+  assertEquals(validateFill("return_form", { name: "x" }, "Заполняю").ok, false);
 });
 
 Deno.test("validateFill: некорректный телефон — ошибка", () => {
@@ -170,32 +212,11 @@ Deno.test("validateFill: пустые поля (после trim) — ошибк�
   assertEquals(r.ok, false);
 });
 
-Deno.test("validateFill: допустимые ключи по формам", () => {
-  assertEquals(FORMS.includes("return_form"), true);
+Deno.test("validateFill: допустимые формы — lead_form, buy_one_click, search (return_form упразднена)", () => {
   assertEquals(FORMS.includes("lead_form"), true);
+  assertEquals(FORMS.includes("buy_one_click"), true);
   assertEquals(FORMS.includes("search"), true);
-});
-
-// ---------------------------------------------------------------------------
-// validateFilter
-// ---------------------------------------------------------------------------
-
-Deno.test("validateFilter: обычный набор фильтров — ок", () => {
-  const r = validateFilter({ "Тип цоколя": "E27", "Цветовая температура": "4000" }, "Применяю фильтры");
-  assertEquals(r.ok, true);
-  if (r.ok) assertEquals(r.action.filters["Тип цоколя"], "E27");
-});
-
-Deno.test("validateFilter: пустой объект — ошибка", () => {
-  assertEquals(validateFilter({}, "Применяю").ok, false);
-});
-
-Deno.test("validateFilter: слишком много фильтров — обрезается до лимита, без ошибки", () => {
-  const filters: Record<string, string> = {};
-  for (let i = 0; i < 20; i++) filters[`k${i}`] = `v${i}`;
-  const r = validateFilter(filters, "Применяю");
-  assertEquals(r.ok, true);
-  if (r.ok) assertEquals(Object.keys(r.action.filters).length <= 8, true);
+  assertEquals((FORMS as readonly string[]).includes("return_form"), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -232,6 +253,31 @@ Deno.test("normalizeKzPhone", () => {
   assertEquals(normalizeKzPhone("+7 701 234 56 78"), "+77012345678");
   assertEquals(normalizeKzPhone("8 (701) 234-56-78"), "+77012345678");
   assertEquals(normalizeKzPhone("12345"), null);
+});
+
+// ---------------------------------------------------------------------------
+// phoneMentionedByUser — телефон в fill_form/create_lead можно указывать, только если клиент
+// сам его написал в этом диалоге.
+// ---------------------------------------------------------------------------
+
+Deno.test("phoneMentionedByUser: телефон встречается в сообщении клиента (разные форматы записи)", () => {
+  assertEquals(
+    phoneMentionedByUser("+77012345678", ["Здравствуйте, мой номер +7 701 234 56 78, перезвоните"]),
+    true,
+  );
+  assertEquals(phoneMentionedByUser("+77012345678", ["8(701)234-56-78, буду ждать звонка"]), true);
+});
+
+Deno.test("phoneMentionedByUser: телефона нет ни в одном сообщении — false", () => {
+  assertEquals(phoneMentionedByUser("+77012345678", ["Хочу оформить возврат", "Добавьте в корзину"]), false);
+});
+
+Deno.test("phoneMentionedByUser: похожий, но другой номер — false", () => {
+  assertEquals(phoneMentionedByUser("+77012345678", ["Мой номер +7 701 234 56 79"]), false);
+});
+
+Deno.test("phoneMentionedByUser: пустой список сообщений — false", () => {
+  assertEquals(phoneMentionedByUser("+77012345678", []), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -276,7 +322,7 @@ Deno.test("collectTurnActions: порядок вывода — по хронол
   assertEquals(out.map((a) => a.type), ["highlight", "navigate", "highlight"]);
 });
 
-Deno.test("collectTurnActions: singleton-типы (click/fill/filter/suggest) — тоже последний выигрывает", () => {
+Deno.test("collectTurnActions: singleton-типы (click/fill/suggest) — тоже последний выигрывает", () => {
   const click1: UiAction = { type: "click", target: "buy_button", label: "первый" };
   const click2: UiAction = { type: "click", target: "search_submit", label: "второй" };
   const suggest1: UiAction = { type: "suggest", options: ["a"] };

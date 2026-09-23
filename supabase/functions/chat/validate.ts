@@ -5,6 +5,8 @@ export interface ValidationFlags {
   unknown_urls?: string[];
   unmatched_prices?: number[];
   no_tool_price?: boolean;
+  /** Ответ утверждает, что действие на сайте сделано/делается, но соответствующий action не отправлен. */
+  claimed_action_without_tool?: string[];
 }
 
 export interface ValidationInput {
@@ -15,12 +17,31 @@ export interface ValidationInput {
   toolCalled: boolean;
   /** Тексты, из которых цены тоже считаются «известными» (например, сообщение клиента с бюджетом). */
   extraTexts?: string[];
+  /** Типы UI-действий (navigate/highlight/click/fill/suggest), реально отправленных в этом ходе. */
+  actionTypes?: Iterable<string>;
 }
 
 const EKT_URL_RE = /https?:\/\/(?:www\.)?ekt\.kz(?:\/[^\s<>"'`()\[\]{}]*)?/gi;
 // Число с пробелами-разделителями тысяч (обычный, неразрывный, узкий неразрывный) и копейками.
-const PRICE_RE =
-  /(?<![\d.,])(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*(?:₸|тг\.?(?![а-яё])|тенге|kzt\b)/giu;
+const PRICE_RE = /(?<![\d.,])(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*(?:₸|тг\.?(?![а-яё])|тенге|kzt\b)/giu;
+
+// Фразы-заявления о действии на сайте («Добавляю в корзину…», «Открываю карточку…») и тип action,
+// который должен был быть отправлен вместе с таким заявлением. `[^.!?\n]*?` не даёт паре
+// глагол+объект «перетечь» через соседние предложения (иначе были бы ложные срабатывания).
+const CLAIMED_ACTION_RULES: { re: RegExp; type: string }[] = [
+  { re: /добав\S*[^.!?\n]*?в\s+корзин\S*/iu, type: "click" },
+  { re: /открыва\S*[^.!?\n]*?(карточк\S*|страниц\S*)/iu, type: "navigate" },
+  { re: /заполня\S*[^.!?\n]*?(форм\S*|заявлени\S*)/iu, type: "fill" },
+  { re: /применя\S*[^.!?\n]*?фильтр\S*/iu, type: "filter" },
+  { re: /перехож\S*/iu, type: "navigate" },
+];
+
+/** Типы UI-действий, о выполнении которых ответ заявляет текстом («открываю», «добавляю в корзину» …). */
+export function detectClaimedActionTypes(answer: string): Set<string> {
+  const found = new Set<string>();
+  for (const rule of CLAIMED_ACTION_RULES) if (rule.re.test(answer)) found.add(rule.type);
+  return found;
+}
 
 /** Приводит URL ekt.kz к каноническому виду для сравнения. */
 export function normalizeUrl(u: string): string {
@@ -113,6 +134,14 @@ export function validateAnswer(input: ValidationInput): ValidationFlags {
     if (unmatched.length) flags.unmatched_prices = unmatched;
     if (!input.toolCalled) flags.no_tool_price = true;
   }
+
+  const claimed = detectClaimedActionTypes(input.answer);
+  if (claimed.size) {
+    const have = new Set(input.actionTypes ?? []);
+    const missing = [...claimed].filter((t) => !have.has(t));
+    if (missing.length) flags.claimed_action_without_tool = missing;
+  }
+
   return flags;
 }
 

@@ -15,7 +15,15 @@ import { type ChatMessage, embed, streamChat, type Usage } from "./openai.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "./ratelimit.ts";
 import type { SSEWriter } from "./sse.ts";
-import { compactOutcome, executeTool, type ProductCard, TOOL_DEFS, TOOL_LABELS, type ToolOutcome } from "./tools.ts";
+import {
+  compactOutcome,
+  executeTool,
+  navUrlsOf,
+  type ProductCard,
+  TOOL_DEFS,
+  TOOL_LABELS,
+  type ToolOutcome,
+} from "./tools.ts";
 import { collectKnownUrls, collectTurnActions, type UiAction } from "./ui_actions.ts";
 import { pickMentionedProducts, validateAnswer } from "./validate.ts";
 
@@ -95,6 +103,9 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
 
     const history = await loadHistory(db, sessionId, LIMITS.historyMessages);
     const prior = historyToolData(history);
+    // Текущее сообщение уже сохранено и попадает в history (последним) — этого достаточно, чтобы
+    // fill_form/create_lead могли проверить, что телефон реально написал клиент.
+    const userTexts = history.filter((h) => h.role === "user").map((h) => h.content);
     const messages: ChatMessage[] = [
       { role: "system", content: buildSystemPrompt({ pageUrl: req.page_url, city: req.city }) },
       ...historyToMessages(history),
@@ -115,9 +126,13 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       }
       return p;
     };
-    // url ekt.kz, известные navigate_to: из истории сразу, из этого хода — по мере выполнения раундов.
-    const knownUrls = collectKnownUrls(prior.data);
-    const toolCtx = { db, sessionId, embed: embedQuery, knownUrls };
+    // url ekt.kz, известные navigate_to: из истории сразу (только `nav_urls` — карточки товаров,
+    // страницы search_knowledge, успешные переходы; НЕ `args`, чтобы отклонённые/несуществующие url
+    // не становились разрешёнными задним числом), из этого хода — по мере выполнения раундов.
+    const knownUrls = collectKnownUrls(
+      prior.data.map((t) => (t as { nav_urls?: string[] }).nav_urls),
+    );
+    const toolCtx = { db, sessionId, embed: embedQuery, knownUrls, userTexts };
 
     for (let round = 0; round < LIMITS.maxToolRounds; round++) {
       const lastRound = round === LIMITS.maxToolRounds - 1;
@@ -165,8 +180,9 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
         outcomes.push(results[i]);
         messages.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify(results[i].result) });
       });
-      // Url из результатов этого раунда становятся известны для navigate_to в следующих раундах хода.
-      for (const u of collectKnownUrls(results.map((r) => r.result))) knownUrls.add(u);
+      // Url из результатов этого раунда (карточки/search_knowledge/успешный navigate — не args)
+      // становятся известны для navigate_to в следующих раундах хода.
+      for (const o of results) for (const u of navUrlsOf(o)) knownUrls.add(u);
     }
 
     if (!answer.trim()) {
@@ -174,6 +190,13 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       answer = EMPTY_ANSWER;
       w.send("delta", { text: answer });
     }
+
+    // UI-действия (navigate/highlight/click/fill/suggest) хода: собраны из успешных вызовов
+    // инструментов и сжаты по лимитам (1 navigate/click/fill/suggest, ≤3 highlight). Считаем
+    // их до validateAnswer, чтобы проверить и «заявленные, но не выполненные» действия в тексте.
+    const uiActions: UiAction[] = collectTurnActions(
+      outcomes.map((o) => o.uiAction).filter((a): a is UiAction => !!a),
+    );
 
     // Детерминированная проверка ответа.
     const toolErrors = outcomes.filter((o) => o.error).map((o) => ({ tool: o.name, error: o.error }));
@@ -184,7 +207,8 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
         answer,
         toolData: [...outcomes.map((o) => ({ args: o.args, result: o.result })), ...prior.data],
         toolCalled: outcomes.length > 0,
-        extraTexts: history.filter((h) => h.role === "user").map((h) => h.content),
+        extraTexts: userTexts,
+        actionTypes: uiActions.map((a) => a.type),
       }),
     );
 
@@ -208,12 +232,7 @@ export async function runChat(w: SSEWriter, cfg: Config, req: ChatRequest, meta:
       });
     }
 
-    // UI-действия (navigate/highlight/click/fill/filter/suggest) хода: собраны из успешных вызовов
-    // инструментов, сжаты по лимитам (1 navigate/click/fill/filter/suggest, ≤3 highlight) и отправлены
-    // после текста и карточек товаров, перед `done`.
-    const uiActions: UiAction[] = collectTurnActions(
-      outcomes.map((o) => o.uiAction).filter((a): a is UiAction => !!a),
-    );
+    // Отправляются после текста и карточек товаров, перед `done` (см. Global Constraints).
     for (const action of uiActions) w.send("action", action);
     if (uiActions.length) flags.actions = uiActions;
 

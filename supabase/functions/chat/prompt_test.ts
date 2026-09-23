@@ -11,11 +11,28 @@ Deno.test("buildSystemPrompt: правило языка — отвечать н�
 Deno.test("buildSystemPrompt: блок «Действия на сайте» с плейбуком сценариев", () => {
   const p = buildSystemPrompt();
   assertStringIncludes(p, "## Действия на сайте");
-  for (const tool of ["navigate_to", "highlight", "click_element", "fill_form", "apply_filters", "suggest_replies"]) {
+  for (const tool of ["navigate_to", "highlight", "click_element", "fill_form", "suggest_replies"]) {
     assertStringIncludes(p, tool);
   }
   // Правило согласия для действий, меняющих состояние страницы.
   assertStringIncludes(p, "явно согласился");
+});
+
+Deno.test("buildSystemPrompt: apply_filters/filter упразднены (РАЗВОРОТ на реальный ekt.kz)", () => {
+  const p = buildSystemPrompt();
+  assertEquals(p.includes("apply_filters"), false);
+  assertEquals(p.includes("return_form"), false);
+});
+
+Deno.test("buildSystemPrompt: никогда не заявлять о действии без вызова инструмента", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "никогда не ври о действии");
+});
+
+Deno.test("buildSystemPrompt: сценарий покупки в 1 клик и корзины не на странице товара", () => {
+  const p = buildSystemPrompt();
+  assertStringIncludes(p, "buy_one_click");
+  assertStringIncludes(p, "lead_form");
 });
 
 Deno.test("buildSystemPrompt: page_url и city попадают в контекст", () => {

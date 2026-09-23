@@ -4,17 +4,17 @@ import { LIMITS } from "./config.ts";
 import type { Db } from "./db.ts";
 import type { ToolDef } from "./openai.ts";
 import {
+  buildNavigateAction,
   CLICK_TARGETS,
   FORM_FIELDS,
   FORMS,
   normalizeKzPhone,
+  phoneMentionedByUser,
   TARGETS,
   type UiAction,
   validateClick,
   validateFill,
-  validateFilter,
   validateHighlight,
-  validateNavigate,
   validateSuggest,
 } from "./ui_actions.ts";
 
@@ -182,7 +182,9 @@ export const TOOL_DEFS: ToolDef[] = [
       name: "create_lead",
       description:
         "Создать заявку менеджеру магазина. Вызывай ТОЛЬКО после того, как клиент сам сообщил номер телефона " +
-        "и явно согласился, чтобы с ним связались, и ты подтвердил с ним данные заявки. Никогда не придумывай телефон.",
+        "и явно согласился, чтобы с ним связались, и ты подтвердил с ним данные заявки. Никогда не придумывай " +
+        "телефон и не бери его из другого источника — сервер проверяет, что телефон дословно встречается в " +
+        "сообщениях клиента этого диалога, и откажет, если это не так.",
       parameters: {
         type: "object",
         properties: {
@@ -263,7 +265,9 @@ export const TOOL_DEFS: ToolDef[] = [
     type: "function",
     function: {
       name: "click_element",
-      description: "Нажимает элемент на текущей странице сайта (например «Купить» или кнопку поиска). Виджет покажет " +
+      description: "Нажимает элемент на текущей странице сайта: buy_button — добавить товар в корзину; " +
+        "search_submit — выполнить поиск (после fill_form form=search); buy_one_click/lead_form — открыть модалку " +
+        "«Купить в 1 клик»/«Оставить заявку» (после открытия заполни её через fill_form). Виджет покажет " +
         "предупреждение с кнопкой «Отмена» на 2 секунды, подсветит элемент и нажмёт его. Вызывай ТОЛЬКО после " +
         "того, как клиент явно согласился («да, добавь», «нажми купить» и т. п.), и после того, как ты " +
         "объяснил, что сделаешь. Не оформляет и не подтверждает заказ — только действие в браузере клиента; " +
@@ -284,11 +288,15 @@ export const TOOL_DEFS: ToolDef[] = [
     function: {
       name: "fill_form",
       description:
-        "Заполняет поля формы на текущей странице сайта значениями из диалога. Форму НЕ отправляет — нажимает и " +
-        "отправляет клиент сам. Вызывай ТОЛЬКО после того, как собрал у клиента нужные данные и он согласился " +
-        "перейти к оформлению. Поля формы return_form: name, phone, order_number, purchase_date, product, " +
-        "reason. Поля lead_form: name, phone, city, comment. Поля search: q. Указывай только реальные данные, " +
-        "которые сообщил клиент; телефон — только если клиент сам его написал. Не больше одного вызова за ответ.",
+        "Заполняет поля формы/модалки на текущей странице сайта значениями из диалога (сам открывает модалку, " +
+        "если форма в модалке). НЕ отправляет форму — нажимает «Отправить» клиент сам (search — исключение: " +
+        "после fill_form form=search можно click_element target=search_submit). Вызывай ТОЛЬКО после того, как " +
+        "собрал у клиента нужные данные и он согласился перейти к оформлению. Поля формы lead_form («Оставить " +
+        "заявку»): name, email, phone, question — для возврата собери в question «Возврат: заказ №…, дата " +
+        "покупки…, товар…, причина…». Поля buy_one_click («Купить в 1 клик»): name, phone, email. Поля search: q. " +
+        "Указывай только реальные данные, которые сообщил клиент; поле phone указывай, только если клиент сам " +
+        "его написал в этом диалоге — сервер проверяет это и откажет, если телефон в сообщениях клиента не " +
+        "встречается. Не больше одного вызова за ответ.",
       parameters: {
         type: "object",
         properties: {
@@ -306,30 +314,6 @@ export const TOOL_DEFS: ToolDef[] = [
           },
         },
         required: ["form", "fields", "label"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "apply_filters",
-      description:
-        "Применяет фильтры в каталоге товаров на странице /catalog/svetilniki_lampy/lampy/ — работает, только " +
-        "если клиент сейчас там (иначе сначала navigate_to). Ключи filters — точные названия характеристик " +
-        "(узнать можно через category_facets), значения — как в характеристиках товара. Не больше одного " +
-        "вызова за ответ.",
-      parameters: {
-        type: "object",
-        properties: {
-          filters: {
-            type: "object",
-            description: '{"Название характеристики": "значение"}, например {"Тип цоколя": "E27"}.',
-            additionalProperties: { type: "string" },
-          },
-          label: { type: "string", description: "Короткая фраза клиенту, например «Применяю фильтры»." },
-        },
-        required: ["filters", "label"],
         additionalProperties: false,
       },
     },
@@ -373,7 +357,6 @@ export const TOOL_LABELS: Record<string, string> = {
   highlight: "Показываю на странице…",
   click_element: "Нажимаю на сайте…",
   fill_form: "Заполняю форму…",
-  apply_filters: "Применяю фильтры…",
   suggest_replies: "Предлагаю варианты…",
 };
 
@@ -393,6 +376,12 @@ export interface ToolContext {
    * найденные раньше в этом же ходе.
    */
   knownUrls: Set<string>;
+  /**
+   * Тексты сообщений клиента этого диалога (история + текущее) — используется fill_form (поле
+   * phone) и create_lead, чтобы проверить, что телефон, который собирается указать модель,
+   * действительно встречается в словах клиента, а не придуман/подставлен моделью.
+   */
+  userTexts: string[];
 }
 
 /** Карточка товара для события `products` виджета. */
@@ -414,7 +403,7 @@ export interface ToolOutcome {
   result: Record<string, unknown>;
   /** Товары, найденные этим вызовом. */
   cards: ProductCard[];
-  /** UI-действие (navigate/highlight/click/fill/filter/suggest), если инструмент его успешно провалидировал. */
+  /** UI-действие (navigate/highlight/click/fill/suggest), если инструмент его успешно провалидировал. */
   uiAction?: UiAction;
   error?: string;
 }
@@ -827,6 +816,16 @@ const createLead: Executor = async (args, ctx) => {
       cards: [],
     };
   }
+  if (!phoneMentionedByUser(phone, ctx.userTexts)) {
+    return {
+      result: {
+        ok: false,
+        error:
+          "Телефон не найден в сообщениях клиента. Указывай телефон, только если клиент сам его написал в этом диалоге.",
+      },
+      cards: [],
+    };
+  }
   const request = str(args.request, 1500);
   if (!request) return { result: { ok: false, error: "Не указана суть заявки (request)." }, cards: [] };
   const email = str(args.email, 200);
@@ -880,21 +879,19 @@ const createLead: Executor = async (args, ctx) => {
 };
 
 // ---------------------------------------------------------------------------
-// UI-действия (navigate/highlight/click/fill/filter/suggest) — валидация в ui_actions.ts,
+// UI-действия (navigate/highlight/click/fill/suggest) — валидация в ui_actions.ts,
 // здесь только разбор аргументов и упаковка в ToolOutcome.uiAction.
 // ---------------------------------------------------------------------------
 
 const navigateTo: Executor = (args, ctx) => {
   const url = str(args.url, 500) ?? "";
   const label = str(args.label, 200) ?? "";
-  const v = validateNavigate(url, ctx.knownUrls);
+  const v = buildNavigateAction(url, label, ctx.knownUrls);
   if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
-  const l = label.slice(0, 120);
-  if (!l) return Promise.resolve({ result: { ok: false, error: "Укажи label." }, cards: [] });
   return Promise.resolve({
     result: { ok: true, note: "Переход будет выполнен после ответа, в том же окне." },
     cards: [],
-    uiAction: { type: "navigate", url: v.url!, label: l },
+    uiAction: v.action,
   });
 };
 
@@ -922,24 +919,23 @@ const clickElement: Executor = (args) => {
   });
 };
 
-const fillForm: Executor = (args) => {
+const fillForm: Executor = (args, ctx) => {
   const form = str(args.form, 60) ?? "";
   const label = str(args.label, 200) ?? "";
   const v = validateFill(form, args.fields, label);
   if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
+  if (v.action.fields.phone && !phoneMentionedByUser(v.action.fields.phone, ctx.userTexts)) {
+    return Promise.resolve({
+      result: {
+        ok: false,
+        error:
+          "Телефон не найден в сообщениях клиента. Указывай поле phone, только если клиент сам написал его в этом диалоге.",
+      },
+      cards: [],
+    });
+  }
   return Promise.resolve({
     result: { ok: true, note: "Форма будет заполнена после ответа; отправляет её клиент сам." },
-    cards: [],
-    uiAction: v.action,
-  });
-};
-
-const applyFilters: Executor = (args) => {
-  const label = str(args.label, 200) ?? "";
-  const v = validateFilter(args.filters, label);
-  if (!v.ok) return Promise.resolve({ result: { ok: false, error: v.error }, cards: [] });
-  return Promise.resolve({
-    result: { ok: true, note: "Фильтры будут применены после ответа (работает только в каталоге)." },
     cards: [],
     uiAction: v.action,
   });
@@ -967,7 +963,6 @@ const EXECUTORS: Record<string, Executor> = {
   highlight: highlightEl,
   click_element: clickElement,
   fill_form: fillForm,
-  apply_filters: applyFilters,
   suggest_replies: suggestReplies,
 };
 
@@ -999,6 +994,25 @@ export async function executeTool(name: string, rawArgs: string, ctx: ToolContex
   }
 }
 
+/**
+ * url, разрешённые для будущих navigate_to этого диалога: карточки товаров (cards — от
+ * search_products/get_product), страницы базы знаний (search_knowledge.items[].url), url
+ * успешного перехода (navigate_to). НАМЕРЕННО не берёт url из `args` (в т.ч. отклонённых вызовов
+ * navigate_to или get_product(url=…) без найденного товара) и не берёт url категорий
+ * (list_categories) — категория не входит в допустимые цели navigate_to по контракту.
+ */
+export function navUrlsOf(o: ToolOutcome): string[] {
+  const urls = new Set<string>();
+  for (const c of o.cards) if (c.url) urls.add(c.url);
+  if (o.name === "search_knowledge" && Array.isArray(o.result.items)) {
+    for (const it of o.result.items as Record<string, unknown>[]) {
+      if (typeof it.url === "string" && it.url) urls.add(it.url);
+    }
+  }
+  if (o.uiAction && o.uiAction.type === "navigate") urls.add(o.uiAction.url);
+  return [...urls];
+}
+
 /** Компактная запись результата для аудита в chat_messages.tool_results. */
 export function compactOutcome(o: ToolOutcome): Record<string, unknown> {
   const r = o.result;
@@ -1006,6 +1020,8 @@ export function compactOutcome(o: ToolOutcome): Record<string, unknown> {
   if (o.error) out.error = o.error;
   if (o.cards.length) out.products = o.cards;
   if (o.uiAction) out.action = o.uiAction;
+  const navUrls = navUrlsOf(o);
+  if (navUrls.length) out.nav_urls = navUrls;
   const urls = new Set<string>();
   const collect = (list: unknown) => {
     if (Array.isArray(list)) {

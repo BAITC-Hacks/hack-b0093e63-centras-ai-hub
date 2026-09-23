@@ -1,6 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   collectKnown,
+  detectClaimedActionTypes,
   extractPrices,
   extractUrls,
   normalizeUrl,
@@ -154,4 +155,57 @@ Deno.test("pickMentionedProducts: порядок по первому упоми�
   assertEquals(pickMentionedProducts(answer, cards, 6).map((c) => c.id), [2, 3, 1]);
   assertEquals(pickMentionedProducts(answer, cards, 2).map((c) => c.id), [2, 3]);
   assertEquals(pickMentionedProducts("ничего", cards, 6), []);
+});
+
+// ---------------------------------------------------------------------------
+// detectClaimedActionTypes / claimed_action_without_tool — ответ не должен утверждать, что
+// действие на сайте выполнено/выполняется, если соответствующий action не отправлен.
+// ---------------------------------------------------------------------------
+
+Deno.test("detectClaimedActionTypes: находит заявления о действиях по стемам из живого прогона", () => {
+  assertEquals(detectClaimedActionTypes("Добавляю лампочку в корзину…"), new Set(["click"]));
+  assertEquals(detectClaimedActionTypes("Открываю карточку самой дешёвой лампочки за 169 ₸."), new Set(["navigate"]));
+  assertEquals(detectClaimedActionTypes("Заполняю заявление на возврат."), new Set(["fill"]));
+  assertEquals(detectClaimedActionTypes("Применяю фильтры по цоколю E27."), new Set(["filter"]));
+  assertEquals(detectClaimedActionTypes("Перехожу на страницу оплаты."), new Set(["navigate"]));
+  assertEquals(detectClaimedActionTypes("Уточните, пожалуйста, город."), new Set());
+});
+
+Deno.test("validateAnswer: заявленное действие без action — флаг claimed_action_without_tool", () => {
+  const flags = validateAnswer({
+    answer: "Добавляю лампочку в корзину…",
+    toolData: [],
+    toolCalled: true,
+    actionTypes: [], // click_element не вызван в этом ходе
+  });
+  assertEquals(flags.claimed_action_without_tool, ["click"]);
+});
+
+Deno.test("validateAnswer: заявленное действие С соответствующим action — флага нет", () => {
+  const flags = validateAnswer({
+    answer: "Открываю карточку товара…",
+    toolData: [],
+    toolCalled: true,
+    actionTypes: ["navigate", "highlight"],
+  });
+  assertEquals(flags.claimed_action_without_tool, undefined);
+});
+
+Deno.test("validateAnswer: без actionTypes (не передан) поведение как «ничего не отправлено»", () => {
+  const flags = validateAnswer({
+    answer: "Заполняю форму возврата.",
+    toolData: [],
+    toolCalled: true,
+  });
+  assertEquals(flags.claimed_action_without_tool, ["fill"]);
+});
+
+Deno.test("validateAnswer: обычный текст без заявлений о действии — флага нет", () => {
+  const flags = validateAnswer({
+    answer: "Вот подходящие лампы E27 тёплого света до 1000 ₸.",
+    toolData: [],
+    toolCalled: true,
+    actionTypes: [],
+  });
+  assertEquals(flags.claimed_action_without_tool, undefined);
 });
